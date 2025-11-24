@@ -24,7 +24,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'User is already part of a couple' }, { status: 409 });
     }
 
-    let uniqueCode: string;
+    let uniqueCode: string = '';
     let coupleExists = true;
     // Ensure code is unique
     while (coupleExists) {

@@ -1,0 +1,72 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url  	    = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  password      String
+  avatarUrl     String?
+  
+  coupleId      String?
+  couple        Couple?   @relation(fields: [coupleId], references: [id])
+
+  notes         Note[]
+  sessions      DevotionalSession[]
+  weeklyProgress WeeklyProgress?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Couple {
+  id        String   @id @default(cuid())
+  code      String   @unique // New field for the unique couple code
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  users     User[]
+}
+
+model DevotionalSession {
+  id                  String   @id @default(cuid())
+  date                DateTime @default(now())
+  scriptureReference  String
+  theme               String
+  culturalContext     String
+  literaryContext     String
+  christConnection    String
+  applicationQuestions String
+  status              String
+  notes               Note[]
+  user                User     @relation(fields: [userId], references: [id])
+  userId              String
+}
+
+model Note {
+  id          String   @id @default(cuid())
+  content     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  session     DevotionalSession @relation(fields: [sessionId], references: [id])
+  sessionId   String
+  user        User     @relation(fields: [userId], references: [id])
+  userId      String
+}
+
+model WeeklyProgress {
+  id                String   @id @default(cuid())
+  weekStart         DateTime
+  daysCompleted     String // Storing as a comma-separated string of booleans
+  spiritualGrowthXP Int
+  user              User     @relation(fields: [userId], references: [id])
+  userId            String   @unique
+}

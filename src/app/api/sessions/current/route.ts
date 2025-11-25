@@ -39,7 +39,7 @@ export async function GET(request: Request) {
         const partnerId = coupleUserIds.find(id => id !== user.id);
         if (partnerId) {
             const recentCutoff = new Date(Date.now() - SAME_DAY_WINDOW_MS);
-            const partnerSession = await prisma.devotionalSession.findFirst({
+             const partnerSession = await prisma.devotionalSession.findFirst({
                 where: {
                     userId: partnerId,
                     status: { in: ['IN_PROGRESS', 'WAITING_PARTNER'] },

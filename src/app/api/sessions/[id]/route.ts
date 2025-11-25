@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 
 const DEFAULT_DAYS_COMPLETED = Array(7).fill('false').join(',');
 const SAME_DAY_WINDOW_MS = 1000 * 60 * 60 * 24;
@@ -186,6 +188,61 @@ export async function PUT(request: Request, { params }: { params: { id: string }
   } catch (error) {
     console.error('Error updating session:', error);
     return NextResponse.json({ error: 'Failed to update session' }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+  const { id } = params;
+  try {
+    const session = await getServerSession(authOptions);
+    
+    if (!session || !session.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const currentUser = await prisma.user.findUnique({
+      where: { email: session.user.email },
+      include: { couple: { include: { users: true } } }
+    });
+
+    if (!currentUser) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    // Fetch the session to delete
+    const sessionToDelete = await prisma.devotionalSession.findUnique({
+      where: { id },
+      include: { user: { include: { couple: { include: { users: true } } } } }
+    });
+
+    if (!sessionToDelete) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    // Check if user has permission to delete (owner or partner in same couple)
+    const isOwner = sessionToDelete.userId === currentUser.id;
+    const isPartner = currentUser.coupleId && 
+                      sessionToDelete.user.coupleId === currentUser.coupleId &&
+                      sessionToDelete.user.couple?.users.some(u => u.id === currentUser.id);
+
+    if (!isOwner && !isPartner) {
+      return NextResponse.json({ error: 'Forbidden: You can only delete your own sessions or your partner\'s sessions' }, { status: 403 });
+    }
+
+    // Delete all notes associated with this session first
+    await prisma.note.deleteMany({
+      where: { sessionId: id }
+    });
+
+    // Delete the session
+    await prisma.devotionalSession.delete({
+      where: { id }
+    });
+
+    return NextResponse.json({ message: 'Session deleted successfully' }, { status: 200 });
+  } catch (error) {
+    console.error('Error deleting session:', error);
+    return NextResponse.json({ error: 'Failed to delete session' }, { status: 500 });
   }
 }
 

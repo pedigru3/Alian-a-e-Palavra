@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { redirect, notFound } from 'next/navigation';
 import Link from 'next/link';
+import { DeleteDevotionalButton } from '@/components/DeleteDevotionalButton';
 
 const SAME_DAY_WINDOW_MS = 1000 * 60 * 60 * 24;
 
@@ -167,12 +168,15 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
             <h1 className="font-serif text-4xl text-love-900">{devotionalSession.scriptureReference}</h1>
             <p className="text-sm text-slate-500">{formatDate}</p>
           </div>
-          <Link
-            href="/"
-            className="text-love-600 text-sm font-semibold hover:underline"
-          >
-            ← Voltar para o painel
-          </Link>
+          <div className="flex items-center gap-3">
+            <DeleteDevotionalButton sessionId={devotionalSession.id} />
+            <Link
+              href="/"
+              className="text-love-600 text-sm font-semibold hover:underline"
+            >
+              ← Voltar para o painel
+            </Link>
+          </div>
         </div>
 
         <div className="bg-white rounded-3xl shadow-lg border border-rose-100 p-6 grid gap-6 md:grid-cols-2">

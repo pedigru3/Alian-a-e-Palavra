@@ -16,6 +16,7 @@ import {
   LogOut,
   Loader2,
   History,
+  Trash2,
 } from 'lucide-react';
 import { generateDevotionalContent, suggestScripture } from '@/services/geminiService';
 import { User, DevotionalSession, WeeklyProgress, Note, Couple } from '@prisma/client';
@@ -316,6 +317,37 @@ export default function Home() {
     setMyNote('');
   };
 
+  const handleDeleteDevotional = async (sessionId: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (!confirm('Tem certeza que deseja excluir este devocional? Esta ação não pode ser desfeita.')) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}`, {
+        method: 'DELETE',
+      });
+
+      if (res.ok) {
+        // Refresh history and current session
+        mutate('/api/sessions/history');
+        mutateCurrentSession();
+        // If we're viewing this session, go back to dashboard
+        if (sessionData?.id === sessionId) {
+          setSessionData(null);
+        }
+      } else {
+        const error = await res.json();
+        alert(`Erro ao excluir: ${error.error || 'Erro desconhecido'}`);
+      }
+    } catch (error) {
+      console.error('Error deleting session:', error);
+      alert('Erro ao excluir devocional. Tente novamente.');
+    }
+  };
+
   // --- Views ---
 
   // Show loading while session status is being determined or app-specific loading is active
@@ -552,11 +584,14 @@ export default function Home() {
                 </h2>
                 <div className="grid gap-4 sm:grid-cols-2">
                   {historyWithActive.map((session) => (
-                  <Link
+                  <div
                     key={session.id}
-                    href={`/devotional/${session.id}`}
-                    className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex justify-between items-center text-left hover:-translate-y-1 hover:shadow-md transition-all"
+                    className="bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex justify-between items-center text-left hover:-translate-y-1 hover:shadow-md transition-all group relative"
                   >
+                    <Link
+                      href={`/devotional/${session.id}`}
+                      className="flex-1 flex justify-between items-center"
+                    >
                       <div>
                         <h3 className="font-bold text-slate-800">{session.scriptureReference}</h3>
                         <p className="text-xs text-slate-500">{new Date(session.date).toLocaleDateString()}</p>
@@ -577,6 +612,14 @@ export default function Home() {
                          </span>
                       </div>
                     </Link>
+                    <button
+                      onClick={(e) => handleDeleteDevotional(session.id, e)}
+                      className="ml-2 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                      title="Excluir devocional"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                   ))}
                 </div>
               </section>

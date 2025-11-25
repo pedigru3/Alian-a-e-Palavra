@@ -188,6 +188,12 @@ export default function Home() {
 
   const handleStartDevotional = async () => {
     if (!scriptureInput || !user) return;
+
+    // If there is already an active session, just retake it instead of creating a new one
+    if (activeSession) {
+      handleResumeDevotional();
+      return;
+    }
     setIsGeneratingDevotional(true);
 
     try {
@@ -210,6 +216,17 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newSessionPayload),
       });
+
+      if (sessionRes.status === 409) {
+        const conflictData = await sessionRes.json();
+        if (conflictData?.session) {
+          setSessionData(conflictData.session);
+          setScriptureInput('');
+          return;
+        }
+        console.warn(conflictData?.message || 'Já existe um devocional em andamento.');
+        return;
+      }
 
       if (sessionRes.ok) {
         const createdSession: DevotionalSession = await sessionRes.json();
@@ -291,9 +308,10 @@ export default function Home() {
   };
 
   const handleResumeDevotional = () => {
-    if (!currentSession) return;
-    setSessionData(currentSession);
-    setScriptureInput(currentSession.scriptureReference);
+    const sessionToResume = activeSession ?? currentSession;
+    if (!sessionToResume) return;
+    setSessionData(sessionToResume);
+    setScriptureInput(sessionToResume.scriptureReference);
     setActiveTab('context');
     setMyNote('');
   };
@@ -504,22 +522,24 @@ export default function Home() {
                      </button>
                    </div>
 
-                   <button
-                     onClick={handleStartDevotional}
-                    disabled={isGeneratingDevotional || !scriptureInput}
-                    className="w-full bg-love-600 hover:bg-love-700 disabled:bg-love-300 text-white font-semibold py-4 rounded-xl shadow-lg shadow-love-200/50 transition-all flex items-center justify-center gap-2 group"
-                   >
+                  <button
+                    onClick={handleStartDevotional}
+                    disabled={isGeneratingDevotional || !scriptureInput || !!activeSession}
+                    className="w-full bg-love-600 hover:bg-love-700 disabled:bg-love-300 disabled:cursor-not-allowed text-white font-semibold py-4 rounded-xl shadow-lg shadow-love-200/50 transition-all flex items-center justify-center gap-2 group"
+                  >
                     {isGeneratingDevotional ? (
                       <>
                         <Loader2 className="animate-spin" />
                         Preparando devocional...
                       </>
-                     ) : (
-                       <>
-                         Iniciar Estudo <ChevronDown className="group-hover:translate-y-1 transition-transform" />
-                       </>
-                     )}
-                   </button>
+                    ) : activeSession ? (
+                      <>Já existe um devocional em andamento</>
+                    ) : (
+                      <>
+                        Iniciar Estudo <ChevronDown className="group-hover:translate-y-1 transition-transform" />
+                      </>
+                    )}
+                  </button>
                  </div>
                </div>
             </section>

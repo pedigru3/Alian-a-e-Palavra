@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 
+const SAME_DAY_WINDOW_MS = 1000 * 60 * 60 * 24;
+
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions);
 
@@ -36,10 +38,12 @@ export async function GET(request: Request) {
     if (!activeSession) {
         const partnerId = coupleUserIds.find(id => id !== user.id);
         if (partnerId) {
-             const partnerSession = await prisma.devotionalSession.findFirst({
+            const recentCutoff = new Date(Date.now() - SAME_DAY_WINDOW_MS);
+            const partnerSession = await prisma.devotionalSession.findFirst({
                 where: {
                     userId: partnerId,
-                    status: { in: ['IN_PROGRESS', 'WAITING_PARTNER'] }
+                    status: { in: ['IN_PROGRESS', 'WAITING_PARTNER'] },
+                    date: { gte: recentCutoff }
                 },
                 orderBy: { date: 'desc' }
             });
@@ -55,6 +59,7 @@ export async function GET(request: Request) {
                         literaryContext: partnerSession.literaryContext,
                         christConnection: partnerSession.christConnection,
                         applicationQuestions: partnerSession.applicationQuestions,
+                        scriptureText: partnerSession.scriptureText,
                         status: 'IN_PROGRESS',
                         date: partnerSession.date // Keep same date/time roughly
                     },
@@ -79,11 +84,19 @@ export async function GET(request: Request) {
     if (activeSession && activeSession.userId === user.id && activeSession.status === 'WAITING_PARTNER') {
         const partnerId = coupleUserIds.find(id => id !== user.id);
         if (partnerId) {
+            const sessionDate = activeSession.date instanceof Date ? activeSession.date : new Date(activeSession.date);
+            const minDate = new Date(sessionDate.getTime() - SAME_DAY_WINDOW_MS);
+            const maxDate = new Date(sessionDate.getTime() + SAME_DAY_WINDOW_MS);
+
             const partnerSession = await prisma.devotionalSession.findFirst({
                 where: {
                     userId: partnerId,
                     scriptureReference: activeSession.scriptureReference,
-                    status: 'COMPLETED'
+                    status: 'COMPLETED',
+                    date: {
+                        gte: minDate,
+                        lte: maxDate
+                    }
                 },
                 orderBy: { date: 'desc' }
             });

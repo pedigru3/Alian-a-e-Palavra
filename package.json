@@ -4,6 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:stop": "docker compose stop",
     "build": "prisma generate && prisma migrate deploy && next build",
     "postinstall": "prisma generate",
     "start": "next start",

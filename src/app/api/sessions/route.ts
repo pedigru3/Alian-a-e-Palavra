@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { fetchBiblePassageText } from '@/services/bibleService';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { scriptureReference, theme, culturalContext, literaryContext, christConnection, applicationQuestions, userId, status } = body;
+    const scriptureText = await fetchBiblePassageText(scriptureReference);
     
     const session = await prisma.devotionalSession.create({
       data: {
@@ -14,6 +16,7 @@ export async function POST(request: Request) {
         literaryContext,
         christConnection,
         applicationQuestions,
+        scriptureText: scriptureText ?? null,
         status,
         userId,
       },

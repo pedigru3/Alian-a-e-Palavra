@@ -22,7 +22,6 @@ model User {
 
   notes         Note[]
   sessions      DevotionalSession[]
-  weeklyProgress WeeklyProgress?
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -34,6 +33,7 @@ model Couple {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   users     User[]
+  weeklyProgress WeeklyProgress[]
 }
 
 model DevotionalSession {
@@ -45,6 +45,7 @@ model DevotionalSession {
   literaryContext     String
   christConnection    String
   applicationQuestions String
+  scriptureText       String?
   status              String
   notes               Note[]
   user                User     @relation(fields: [userId], references: [id])
@@ -65,8 +66,11 @@ model Note {
 model WeeklyProgress {
   id                String   @id @default(cuid())
   weekStart         DateTime
-  daysCompleted     String // Storing as a comma-separated string of booleans
+  weekEnd           DateTime
+  daysCompleted     String   // Storing as a comma-separated string of booleans
   spiritualGrowthXP Int
-  user              User     @relation(fields: [userId], references: [id])
-  userId            String   @unique
+  couple            Couple   @relation(fields: [coupleId], references: [id])
+  coupleId          String
+
+  @@unique([coupleId, weekStart])
 }

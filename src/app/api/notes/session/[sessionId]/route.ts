@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+const SAME_DAY_WINDOW_MS = 1000 * 60 * 60 * 24;
+
 export async function GET(request: Request, { params }: { params: { sessionId: string } }) {
   const { sessionId } = params;
   try {
@@ -21,11 +23,18 @@ export async function GET(request: Request, { params }: { params: { sessionId: s
     if (couple) {
       const partner = couple.users.find(u => u.id !== currentSession.userId);
       if (partner) {
+        const sessionDate = currentSession.date instanceof Date ? currentSession.date : new Date(currentSession.date);
+        const minDate = new Date(sessionDate.getTime() - SAME_DAY_WINDOW_MS);
+        const maxDate = new Date(sessionDate.getTime() + SAME_DAY_WINDOW_MS);
+
         const partnerSession = await prisma.devotionalSession.findFirst({
           where: {
             userId: partner.id,
             scriptureReference: currentSession.scriptureReference,
-            // We want the most recent one, likely the one matching this study
+            date: {
+              gte: minDate,
+              lte: maxDate,
+            },
           },
           orderBy: { date: 'desc' }
         });

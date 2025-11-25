@@ -4,6 +4,8 @@ import { authOptions } from '@/lib/auth';
 import { redirect, notFound } from 'next/navigation';
 import Link from 'next/link';
 
+const SAME_DAY_WINDOW_MS = 1000 * 60 * 60 * 24;
+
 interface DevotionalReviewPageProps {
   params: { sessionId: string };
 }
@@ -64,11 +66,22 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
   const partner = coupleUsers.find((user) => user.id !== devotionalSession.userId) ?? null;
 
   let partnerSessionId: string | null = null;
+  const partnerFirstName = partner?.name?.split(' ')[0] ?? null;
+  const isOwnerView = devotionalSession.userId === currentUser.id;
+
   if (partner) {
+    const sessionDate = devotionalSession.date instanceof Date ? devotionalSession.date : new Date(devotionalSession.date);
+    const minDate = new Date(sessionDate.getTime() - SAME_DAY_WINDOW_MS);
+    const maxDate = new Date(sessionDate.getTime() + SAME_DAY_WINDOW_MS);
+
     const partnerSession = await prisma.devotionalSession.findFirst({
       where: {
         userId: partner.id,
         scriptureReference: devotionalSession.scriptureReference,
+        date: {
+          gte: minDate,
+          lte: maxDate,
+        },
       },
       orderBy: { date: 'desc' },
     });
@@ -103,12 +116,54 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
     timeStyle: 'short',
   });
 
+  const waitingLabel = (() => {
+    if (!partnerFirstName) {
+      return isOwnerView ? 'Aguardando parceiro(a)' : 'Aguardando confirmação';
+    }
+    return isOwnerView ? `Aguardando ${partnerFirstName}` : 'Aguardando você';
+  })();
+
+  const waitingHeading = isOwnerView
+    ? `Devocional aguardando ${partnerFirstName ?? 'confirmação do parceiro'}`
+    : 'Devocional aguardando sua confirmação';
+
+  const statusMap: Record<string, { label: string; badge: string; text: string; heading: string }> = {
+    COMPLETED: {
+      label: 'Concluído em casal',
+      badge: 'bg-green-100',
+      text: 'text-green-700',
+      heading: 'Devocional concluído',
+    },
+    WAITING_PARTNER: {
+      label: waitingLabel,
+      badge: 'bg-orange-100',
+      text: 'text-orange-700',
+      heading: waitingHeading,
+    },
+    IN_PROGRESS: {
+      label: 'Em progresso',
+      badge: 'bg-blue-100',
+      text: 'text-blue-700',
+      heading: 'Devocional em andamento',
+    },
+  };
+
+  const statusStyles =
+    statusMap[devotionalSession.status] ?? {
+      label: 'Status desconhecido',
+      badge: 'bg-slate-100',
+      text: 'text-slate-600',
+      heading: 'Devocional',
+    };
+
   return (
     <div className="min-h-screen bg-rose-50 text-slate-800 py-12 px-4">
       <div className="max-w-4xl mx-auto space-y-8">
         <div className="flex justify-between items-center">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-love-400 font-semibold mb-2">Devocional concluído</p>
+            <p className="text-xs uppercase tracking-[0.3em] text-love-400 font-semibold mb-2">
+              {statusStyles.heading}
+            </p>
             <h1 className="font-serif text-4xl text-love-900">{devotionalSession.scriptureReference}</h1>
             <p className="text-sm text-slate-500">{formatDate}</p>
           </div>
@@ -127,8 +182,10 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
           </div>
           <div>
             <p className="text-xs font-semibold text-love-500 uppercase tracking-widest mb-2">Status</p>
-            <span className="inline-flex px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-bold">
-              Concluído em casal
+            <span
+              className={`inline-flex px-3 py-1 rounded-full text-xs font-bold ${statusStyles.badge} ${statusStyles.text}`}
+            >
+              {statusStyles.label}
             </span>
           </div>
         </div>
@@ -143,6 +200,13 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
             <p className="text-slate-700 leading-relaxed">{devotionalSession.literaryContext}</p>
           </div>
         </div>
+
+        {devotionalSession.scriptureText && (
+          <div className="bg-white rounded-3xl shadow-lg border border-rose-100 p-6">
+            <p className="text-xs font-semibold text-love-500 uppercase tracking-[0.3em] mb-3">Leitura bíblica (ARA)</p>
+            <p className="text-slate-700 whitespace-pre-wrap leading-relaxed">{devotionalSession.scriptureText}</p>
+          </div>
+        )}
 
         <div className="bg-white rounded-2xl p-6 border border-rose-100">
           <h2 className="text-sm font-semibold text-love-500 uppercase tracking-widest mb-2">Cristo nas Escrituras</h2>

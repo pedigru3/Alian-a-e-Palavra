@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import useSWR, { mutate } from 'swr';
 import { useSession, signOut } from 'next-auth/react';
 import {
@@ -11,11 +11,11 @@ import {
   Users,
   Sparkles,
   Lock,
-  RefreshCw,
   ChevronDown,
   Feather,
   LogOut,
   Loader2,
+  History,
 } from 'lucide-react';
 import { generateDevotionalContent, suggestScripture } from '@/services/geminiService';
 import { User, DevotionalSession, WeeklyProgress, Note, Couple } from '@prisma/client';
@@ -54,7 +54,9 @@ export default function Home() {
   const userId = session?.user?.id;
 
   // --- Local State Management ---
-  const [appLoading, setAppLoading] = useState(false);
+  const [isGeneratingDevotional, setIsGeneratingDevotional] = useState(false);
+  const [isFinishingDevotional, setIsFinishingDevotional] = useState(false);
+  const [isSuggestingScripture, setIsSuggestingScripture] = useState(false);
   const [sessionData, setSessionData] = useState<DevotionalSession | null>(null);
 
   const [scriptureInput, setScriptureInput] = useState('');
@@ -62,6 +64,7 @@ export default function Home() {
 
   // Notes Local State (for immediate typing feedback)
   const [myNote, setMyNote] = useState('');
+  const previousSessionIdRef = useRef<string | null>(null);
 
   // --- SWR Hooks ---
   const { data: user, error: userError, mutate: mutateUser } = useSWR<UserWithCouple>(
@@ -75,7 +78,12 @@ export default function Home() {
   const coupleCode = user?.couple?.code;
 
   const { data: progress, mutate: mutateProgress } = useSWR<WeeklyProgress>(
-    userId ? `/api/weekly-progress/${userId}` : null,
+    userId && user?.coupleId ? `/api/weekly-progress/${userId}` : null,
+    fetcher
+  );
+
+  const { data: progressHistory } = useSWR<WeeklyProgress[]>(
+    userId && user?.coupleId ? '/api/weekly-progress/history' : null,
     fetcher
   );
 
@@ -97,19 +105,28 @@ export default function Home() {
     { refreshInterval: 5000 } // Poll every 5 seconds to check for partner's new session
   );
 
+  const activeSession = currentSession && currentSession.status !== 'COMPLETED' ? currentSession : null;
+  const historyWithActive = useMemo(() => {
+    if (!history && !activeSession) return [];
+    const baseHistory = history ?? [];
+    if (!activeSession) return baseHistory;
+    const alreadyPresent = baseHistory.some(session => session.id === activeSession.id);
+    return alreadyPresent ? baseHistory : [activeSession, ...baseHistory];
+  }, [history, activeSession]);
+
   // Auto-set session data if an active session is found and we aren't already in one
   useEffect(() => {
-    if (currentSession && !sessionData) {
+    if (!sessionData) return;
+
+    if (!currentSession) {
+      setSessionData(null);
+      setScriptureInput('');
+      mutateProgress();
+      return;
+    }
+
+    if (currentSession.id === sessionData.id && currentSession.status !== sessionData.status) {
       setSessionData(currentSession);
-      setScriptureInput(currentSession.scriptureReference);
-    } else if (currentSession && sessionData && currentSession.id === sessionData.id && currentSession.status !== sessionData.status) {
-       // Update status if it changed (e.g. partner finished)
-       setSessionData(currentSession);
-    } else if (!currentSession && sessionData) {
-       // Session finalized elsewhere (e.g., partner concluiu). Limpa estado e força atualização.
-       setSessionData(null);
-       setScriptureInput('');
-       mutateProgress();
     }
   }, [currentSession, sessionData, mutateProgress]);
 
@@ -123,44 +140,34 @@ export default function Home() {
     }
   }, [userError, isAuthenticated]);
 
-  // Initialize Progress if missing for an authenticated user
-  useEffect(() => {
-    // Only initialize if user is authenticated and data is loaded and no progress exists
-    if (user && isAuthenticated && !progress) {
-      const initProgress = async () => {
-        try {
-          const defaultProgress = {
-            weekStart: new Date().toISOString(),
-            daysCompleted: '0,0,0,0,0,0,0',
-            spiritualGrowthXP: 0,
-            userId: user.id
-          };
-          await fetch(`/api/weekly-progress`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(defaultProgress)
-          });
-          mutateProgress();
-        } catch (error) {
-          console.error('Error creating weekly progress:', error);
-        }
-      };
-      initProgress();
-    }
-  }, [user, progress, isAuthenticated, mutateProgress]);
+  // Progress is now auto-created by the GET endpoint when missing, no need for client-side initialization
 
   // Sync Notes from SWR to Local State
-  const partnerNote = notes?.find(n => n.userId !== userId)?.content || '';
+  const partnerNote = partner
+    ? notes?.find(n => n.userId === partner.id)?.content || ''
+    : '';
 
   useEffect(() => {
-    if (notes && userId) {
-      const serverMyNote = notes.find(n => n.userId === userId);
-      if (serverMyNote && myNote === '') {
-        setMyNote(serverMyNote.content);
+    if (sessionData?.id) {
+      if (previousSessionIdRef.current !== sessionData.id) {
+        previousSessionIdRef.current = sessionData.id;
+        setMyNote('');
       }
+    } else {
+      previousSessionIdRef.current = null;
+      setMyNote('');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes, userId]);
+  }, [sessionData]);
+
+  useEffect(() => {
+    if (!notes || !userId || !sessionData?.id) return;
+    if (myNote !== '') return;
+
+    const serverMyNote = notes.find(n => n.userId === userId && n.sessionId === sessionData.id);
+    if (serverMyNote) {
+      setMyNote(serverMyNote.content);
+    }
+  }, [notes, userId, sessionData?.id, myNote]);
 
   // --- Handlers ---
   const handleCoupleConnected = () => {
@@ -170,15 +177,18 @@ export default function Home() {
   };
 
   const handleGetSuggestion = async () => {
-    setAppLoading(true);
-    const sugg = await suggestScripture();
-    setScriptureInput(sugg);
-    setAppLoading(false);
+    setIsSuggestingScripture(true);
+    try {
+      const sugg = await suggestScripture();
+      setScriptureInput(sugg);
+    } finally {
+      setIsSuggestingScripture(false);
+    }
   };
 
   const handleStartDevotional = async () => {
     if (!scriptureInput || !user) return;
-    setAppLoading(true);
+    setIsGeneratingDevotional(true);
 
     try {
       const content = await generateDevotionalContent(scriptureInput);
@@ -213,13 +223,15 @@ export default function Home() {
 
         mutateNotes();
         setScriptureInput('');
+
+        handleResumeDevotional();
       } else {
         console.error('Failed to create session:', sessionRes.statusText);
       }
     } catch (error) {
       console.error('Error starting devotional:', error);
     } finally {
-      setAppLoading(false);
+      setIsGeneratingDevotional(false);
     }
   };
 
@@ -244,7 +256,7 @@ export default function Home() {
   const handleFinishSession = async () => {
     if (!sessionData || !user) return;
 
-    setAppLoading(true);
+    setIsFinishingDevotional(true);
     try {
       const res = await fetch(`/api/sessions/${sessionData.id}`, {
         method: 'PUT',
@@ -267,14 +279,29 @@ export default function Home() {
     } catch (error) {
       console.error('Error finishing session:', error);
     } finally {
-      setAppLoading(false);
+      setIsFinishingDevotional(false);
     }
+  };
+
+  const handleCancelDevotional = () => {
+    setSessionData(null);
+    setMyNote('');
+    setActiveTab('context');
+    setScriptureInput('');
+  };
+
+  const handleResumeDevotional = () => {
+    if (!currentSession) return;
+    setSessionData(currentSession);
+    setScriptureInput(currentSession.scriptureReference);
+    setActiveTab('context');
+    setMyNote('');
   };
 
   // --- Views ---
 
   // Show loading while session status is being determined or app-specific loading is active
-  if (loadingSession || appLoading) {
+  if (loadingSession) {
     return <div className="min-h-screen flex items-center justify-center bg-rose-50"><Loader2 className="animate-spin text-love-400" size={48} /></div>;
   }
 
@@ -310,7 +337,22 @@ export default function Home() {
 
 
   return (
-    <div className="min-h-screen bg-rose-50 text-slate-800 font-sans selection:bg-rose-200">
+    <div className="min-h-screen bg-rose-50 text-slate-800 font-sans selection:bg-rose-200 relative">
+      {(isGeneratingDevotional || isFinishingDevotional) && (
+        <div className="absolute inset-0 z-50 bg-white/70 backdrop-blur-sm flex items-center justify-center px-4">
+          <div className="bg-white border border-love-100 shadow-2xl rounded-3xl px-8 py-6 flex flex-col items-center gap-3 text-center max-w-sm">
+            <Loader2 className="text-love-500 animate-spin" size={36} />
+            <p className="text-lg font-semibold text-love-700">
+              {isGeneratingDevotional ? 'Gerando devocional com a IA...' : 'Finalizando devocional...'}
+            </p>
+            <p className="text-sm text-slate-500">
+              {isGeneratingDevotional
+                ? 'Isso pode levar alguns segundos enquanto montamos o estudo completo.'
+                : 'Atualizando progresso do casal e sincronizando com seu parceiro(a).'}
+            </p>
+          </div>
+        </div>
+      )}
       {/* Background Decor */}
       <div className="fixed top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
         <Heart className="absolute top-10 left-10 text-rose-100 opacity-50 animate-float" size={120} />
@@ -367,7 +409,65 @@ export default function Home() {
                   <DayBadge key={d} day={d} completed={progress?.daysCompleted ? progress.daysCompleted.split(',')[i] === 'true' : false} />
                 ))}
               </div>
+
+              {/* Week History */}
+              {progressHistory && progressHistory.length > 1 && (
+                <div className="mt-6 pt-4 border-t border-rose-100">
+                  <div className="flex items-center gap-2 mb-3">
+                    <History size={16} className="text-slate-400" />
+                    <span className="text-xs font-semibold uppercase tracking-widest text-slate-500">Semanas anteriores</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {progressHistory.slice(1, 9).map((week) => {
+                      const daysCount = week.daysCompleted.split(',').filter(d => d === 'true').length;
+                      const weekStartDate = new Date(week.weekStart);
+                      const weekLabel = weekStartDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+                      return (
+                        <div
+                          key={week.id}
+                          className="flex flex-col items-center bg-slate-50 rounded-lg px-3 py-2 border border-slate-100"
+                          title={`Semana de ${weekLabel}`}
+                        >
+                          <span className="text-[10px] text-slate-400 uppercase">{weekLabel}</span>
+                          <span className={`text-sm font-bold ${daysCount >= 5 ? 'text-green-600' : daysCount >= 3 ? 'text-orange-500' : 'text-slate-400'}`}>
+                            {daysCount}/7
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </section>
+
+            {activeSession && (
+              <section className="bg-gradient-to-br from-white to-rose-50 rounded-3xl p-6 shadow-xl border border-rose-100 flex flex-col gap-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <h2 className="font-serif text-xl font-semibold text-slate-800">Devocional em andamento</h2>
+                    <p className="text-slate-500 text-sm">
+                      Você começou "{activeSession.scriptureReference}" e pode retomar quando quiser.
+                    </p>
+                  </div>
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest ${
+                    activeSession.status === 'WAITING_PARTNER'
+                      ? 'bg-orange-100 text-orange-700'
+                      : 'bg-love-100 text-love-700'
+                  }`}>
+                    {activeSession.status === 'WAITING_PARTNER' ? 'Aguardando parceiro(a)' : 'Em progresso'}
+                  </span>
+                </div>
+                <div className="flex w-56 flex-col sm:flex-row gap-3">
+                  <button
+                    onClick={handleResumeDevotional}
+                    className="flex-1 bg-love-600 text-white font-semibold py-3 rounded-xl shadow-md hover:bg-love-700 transition"
+                  >
+                    Retomar agora
+                  </button>
+                  
+                </div>
+              </section>
+            )}
 
             {/* Start Devotional Card */}
             <section className="bg-gradient-to-br from-white to-rose-50 rounded-3xl p-8 shadow-xl border border-rose-100 text-center space-y-6 relative overflow-hidden">
@@ -392,20 +492,28 @@ export default function Home() {
                      />
                      <button
                        onClick={handleGetSuggestion}
-                       className="absolute right-2 top-2 p-2 text-love-400 hover:text-love-600 hover:bg-love-50 rounded-lg transition-colors"
-                       title="Sugerir passagem"
+                      disabled={isSuggestingScripture}
+                      className={`absolute right-2 top-2 p-2 rounded-lg transition-colors ${
+                        isSuggestingScripture
+                          ? 'text-love-300 cursor-not-allowed'
+                          : 'text-love-400 hover:text-love-600 hover:bg-love-50'
+                      }`}
+                      title="Sugerir passagem automaticamente"
                      >
-                       <Sparkles size={20} />
+                      {isSuggestingScripture ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={20} />}
                      </button>
                    </div>
 
                    <button
                      onClick={handleStartDevotional}
-                     disabled={appLoading || !scriptureInput}
-                     className="w-full bg-love-600 hover:bg-love-700 disabled:bg-love-300 text-white font-semibold py-4 rounded-xl shadow-lg shadow-love-200/50 transition-all flex items-center justify-center gap-2 group"
+                    disabled={isGeneratingDevotional || !scriptureInput}
+                    className="w-full bg-love-600 hover:bg-love-700 disabled:bg-love-300 text-white font-semibold py-4 rounded-xl shadow-lg shadow-love-200/50 transition-all flex items-center justify-center gap-2 group"
                    >
-                     {appLoading ? (
-                       <RefreshCw className="animate-spin" />
+                    {isGeneratingDevotional ? (
+                      <>
+                        <Loader2 className="animate-spin" />
+                        Preparando devocional...
+                      </>
                      ) : (
                        <>
                          Iniciar Estudo <ChevronDown className="group-hover:translate-y-1 transition-transform" />
@@ -417,13 +525,13 @@ export default function Home() {
             </section>
 
             {/* History Section */}
-            {history && history.length > 0 && (
+            {historyWithActive.length > 0 && (
               <section className="space-y-4">
                 <h2 className="font-serif text-xl font-semibold text-slate-700 flex items-center gap-2">
                   <CheckCircle className="text-green-500" /> Histórico de Devocionais
                 </h2>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  {history.map((session) => (
+                  {historyWithActive.map((session) => (
                   <Link
                     key={session.id}
                     href={`/devotional/${session.id}`}
@@ -437,8 +545,16 @@ export default function Home() {
                         </span>
                       </div>
                       <div className="text-right flex flex-col items-end gap-1">
-                         <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded-full">Concluído</span>
-                         <span className="text-[10px] text-love-500 font-semibold underline decoration-dotted">Rever anotações</span>
+                         <span className={`text-xs font-bold px-2 py-1 rounded-full ${
+                           session.status === 'COMPLETED'
+                             ? 'text-green-600 bg-green-50'
+                             : 'text-orange-700 bg-orange-50'
+                         }`}>
+                           {session.status === 'COMPLETED' ? 'Concluído' : 'Em progresso'}
+                         </span>
+                         <span className="text-[10px] text-love-500 font-semibold underline decoration-dotted">
+                           {session.status === 'COMPLETED' ? 'Rever anotações' : 'Continuar depois'}
+                         </span>
                       </div>
                     </Link>
                   ))}
@@ -475,7 +591,7 @@ export default function Home() {
             )}
             {/* Title Bar */}
             <div className="flex items-center justify-between">
-              <button onClick={() => setSessionData(null)} className="text-love-600 hover:underline text-sm">
+              <button onClick={handleCancelDevotional} className="text-love-600 hover:underline text-sm">
                 &larr; Cancelar
               </button>
               <div className="flex items-center gap-2 text-love-800 bg-white px-4 py-1 rounded-full shadow-sm">
@@ -491,6 +607,18 @@ export default function Home() {
                </span>
                <h2 className="font-serif text-4xl font-bold text-slate-800 mb-2">{sessionData.scriptureReference}</h2>
             </section>
+
+            {sessionData.scriptureText && (
+              <section className="bg-white rounded-2xl border border-rose-100 shadow-sm p-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <BookOpen className="text-love-500" size={18} />
+                  <span className="text-xs font-semibold uppercase tracking-widest text-love-500">Leitura bíblica (ARA)</span>
+                </div>
+                <p className="text-slate-700 leading-relaxed whitespace-pre-wrap text-sm sm:text-base">
+                  {sessionData.scriptureText}
+                </p>
+              </section>
+            )}
 
             {/* AI Content Tabs */}
             <section className="bg-white rounded-2xl shadow-md overflow-hidden border border-love-100">
@@ -594,9 +722,9 @@ export default function Home() {
             <div className="flex justify-center pt-6 pb-12">
                <button
                  onClick={handleFinishSession}
-                 disabled={sessionData.status === 'WAITING_PARTNER'}
+                 disabled={sessionData.status === 'WAITING_PARTNER' || isFinishingDevotional}
                  className={`px-12 py-4 rounded-full font-bold text-lg shadow-xl transition-all flex items-center gap-3 ${
-                    sessionData.status === 'WAITING_PARTNER' 
+                    sessionData.status === 'WAITING_PARTNER' || isFinishingDevotional
                     ? 'bg-slate-300 text-slate-500 cursor-not-allowed' 
                     : 'bg-love-600 text-white shadow-love-500/30 hover:scale-105 active:scale-95'
                  }`}
@@ -604,6 +732,10 @@ export default function Home() {
                  {sessionData.status === 'WAITING_PARTNER' ? (
                     <>
                       <Loader2 className="animate-spin" /> Aguardando {partnerName}...
+                    </>
+                 ) : isFinishingDevotional ? (
+                    <>
+                      <Loader2 className="animate-spin" /> Salvando progresso...
                     </>
                  ) : (
                     <>

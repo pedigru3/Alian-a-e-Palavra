@@ -19,7 +19,14 @@ import {
   Trash2,
 } from 'lucide-react';
 import { generateDevotionalContent, suggestScripture } from '@/services/geminiService';
-import { User, DevotionalSession, WeeklyProgress, Note, Couple } from '@prisma/client';
+import {
+  User,
+  DevotionalSession,
+  WeeklyProgress,
+  Note,
+  Couple,
+  DevotionalSessionUserProgress,
+} from '@prisma/client';
 import { ProgressBar } from '@/components/ProgressBar';
 import { DayBadge } from '@/components/DayBadge';
 import { AuthForm } from '@/components/AuthForm';
@@ -40,12 +47,21 @@ const fetcher = async (url: string) => {
   return res.json();
 };
 
-// --- Main App ---
-
-// Define a type that includes the relation
 interface UserWithCouple extends User {
   couple: (Couple & { users: User[] }) | null;
 }
+
+type ProgressWithUser = DevotionalSessionUserProgress & { user: User };
+type NoteWithUser = Note & { user: User };
+
+type SessionWithProgress = DevotionalSession & {
+  userProgress: ProgressWithUser[];
+};
+
+type SessionWithRelations = SessionWithProgress & {
+  notes: NoteWithUser[];
+  couple: Couple & { users: User[] };
+};
 
 export default function Home() {
   // --- Authentication State ---
@@ -58,7 +74,7 @@ export default function Home() {
   const [isGeneratingDevotional, setIsGeneratingDevotional] = useState(false);
   const [isFinishingDevotional, setIsFinishingDevotional] = useState(false);
   const [isSuggestingScripture, setIsSuggestingScripture] = useState(false);
-  const [sessionData, setSessionData] = useState<DevotionalSession | null>(null);
+  const [sessionData, setSessionData] = useState<SessionWithRelations | null>(null);
 
   const [scriptureInput, setScriptureInput] = useState('');
   const [activeTab, setActiveTab] = useState<'context' | 'christ' | 'application'>('context');
@@ -88,7 +104,7 @@ export default function Home() {
     fetcher
   );
 
-  const { data: history } = useSWR<DevotionalSession[]>(
+  const { data: history } = useSWR<SessionWithProgress[]>(
     userId ? '/api/sessions/history' : null,
     fetcher
   );
@@ -100,20 +116,33 @@ export default function Home() {
   );
 
   // Poll for current active session for the couple
-  const { data: currentSession, mutate: mutateCurrentSession } = useSWR<DevotionalSession | null>(
+  const { data: currentSession, mutate: mutateCurrentSession } = useSWR<SessionWithRelations | null>(
     user?.coupleId ? '/api/sessions/current' : null,
     fetcher,
     { refreshInterval: 5000 } // Poll every 5 seconds to check for partner's new session
   );
 
   const activeSession = currentSession && currentSession.status !== 'COMPLETED' ? currentSession : null;
-  const historyWithActive = useMemo(() => {
+  const historyWithActive = useMemo<SessionWithProgress[]>(() => {
     if (!history && !activeSession) return [];
     const baseHistory = history ?? [];
     if (!activeSession) return baseHistory;
-    const alreadyPresent = baseHistory.some(session => session.id === activeSession.id);
-    return alreadyPresent ? baseHistory : [activeSession, ...baseHistory];
+    const alreadyPresent = baseHistory.some((session) => session.id === activeSession.id);
+    if (alreadyPresent) return baseHistory;
+    const { notes: _notes, couple: _couple, ...rest } = activeSession;
+    return [{ ...(rest as SessionWithProgress) }, ...baseHistory];
   }, [history, activeSession]);
+
+  const mySessionProgress =
+    sessionData?.userProgress.find((progress) => progress.userId === userId) ?? null;
+  const partnerSessionProgress =
+    partner?.id && sessionData
+      ? sessionData.userProgress.find((progress) => progress.userId === partner.id) ?? null
+      : null;
+  const activeSessionMyProgress =
+    activeSession?.userProgress.find((progress) => progress.userId === userId) ?? null;
+  const userHasCompleted = mySessionProgress?.status === 'COMPLETED';
+  const partnerHasCompleted = partnerSessionProgress?.status === 'COMPLETED';
 
   // Auto-set session data if an active session is found and we aren't already in one
   useEffect(() => {
@@ -230,19 +259,12 @@ export default function Home() {
       }
 
       if (sessionRes.ok) {
-        const createdSession: DevotionalSession = await sessionRes.json();
+        const createdSession: SessionWithRelations = await sessionRes.json();
         setSessionData(createdSession);
-
-        await fetch('/api/notes', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: '', sessionId: createdSession.id, userId: user.id })
-        });
-
-        mutateNotes();
+        setMyNote('');
+        setActiveTab('context');
         setScriptureInput('');
-
-        handleResumeDevotional();
+        mutateCurrentSession();
       } else {
         console.error('Failed to create session:', sessionRes.statusText);
       }
@@ -259,7 +281,7 @@ export default function Home() {
 
     if (!sessionData || !user || !notes) return;
 
-    const myNoteObj = notes.find(n => n.userId === user.id);
+    const myNoteObj = notes.find((n) => n.userId === user.id && n.sessionId === sessionData.id);
 
     if (myNoteObj) {
         await fetch(`/api/notes/${myNoteObj.id}`, {
@@ -282,17 +304,18 @@ export default function Home() {
         body: JSON.stringify({ status: 'COMPLETED' }),
       });
 
-      const updatedSession = await res.json();
+      const updatedSession: SessionWithRelations = await res.json();
 
-      if (updatedSession.status === 'WAITING_PARTNER') {
+      if (updatedSession) {
         setSessionData(updatedSession);
-        mutateCurrentSession();
-        return;
       }
 
-      setSessionData(null);
-      setScriptureInput('');
-      mutateProgress();
+      if (updatedSession?.status === 'COMPLETED') {
+        setSessionData(null);
+        setScriptureInput('');
+        mutateProgress();
+      }
+
       mutateCurrentSession();
     } catch (error) {
       console.error('Error finishing session:', error);
@@ -412,31 +435,33 @@ export default function Home() {
       <div className="relative z-10 max-w-4xl mx-auto px-4 py-8">
 
         {/* Header */}
-        <header className="mb-8 flex justify-between items-center bg-white/60 backdrop-blur-md p-4 rounded-2xl shadow-sm border border-white">
-          <div>
-            <h1 className="font-serif text-2xl font-bold text-love-800 flex items-center gap-2">
-              <Users size={24} className="text-love-600" />
-              Aliança & Palavra
-            </h1>
-            <p className="text-sm text-love-900/60">Bem-vindo, {user.name} {partnerName ? `& ${partnerName}` : ''}</p>
-          </div>
-          <div className="flex items-center gap-3">
-             <div className="text-right hidden sm:block">
-               <span className="text-xs uppercase tracking-widest text-love-800 font-semibold">Nível de Intimidade</span>
-               <div className="w-32">
+        <header className="mb-8 bg-white/60 backdrop-blur-md p-3 sm:p-4 rounded-2xl shadow-sm border border-white">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 sm:gap-4">
+            <div className="flex-1 min-w-0 self-center">
+              <h1 className="font-serif text-xl sm:text-2xl font-bold text-love-800 flex items-center gap-2">
+                <Users size={20} className="text-love-600 sm:w-6 sm:h-6" />
+                <span className="truncate">Aliança & Palavra</span>
+              </h1>
+              <p className="text-xs sm:text-sm text-love-900/60 truncate">Bem-vindo, {user.name} {partnerName ? `& ${partnerName}` : ''}</p>
+            </div>
+            <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+             <div className="text-right flex flex-col items-end gap-1 flex-1 sm:flex-initial min-w-[160px] sm:min-w-[250px] sm:max-w-[200px]">
+               <span className="text-[10px] self-start sm:text-xs uppercase tracking-wider text-love-800 font-semibold leading-tight">Nível de Intimidade</span>
+               <div className="w-full">
                  <ProgressBar progress={progress?.spiritualGrowthXP || 0} />
                </div>
              </div>
-             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-love-400 to-love-600 flex items-center justify-center text-white font-serif font-bold text-xl shadow-lg">
+             <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br from-love-400 to-love-600 flex items-center justify-center text-white font-serif font-bold text-lg sm:text-xl shadow-lg flex-shrink-0">
                {user.name.charAt(0)}
              </div>
              <button
                onClick={() => signOut({ callbackUrl: '/' })}
-               className="p-2 rounded-full bg-love-100 text-love-600 hover:bg-love-200 transition-colors"
+               className="p-2 rounded-full bg-love-100 text-love-600 hover:bg-love-200 transition-colors flex-shrink-0"
                title="Sair"
              >
-               <LogOut size={20} />
+               <LogOut size={18} className="sm:w-5 sm:h-5" />
              </button>
+          </div>
           </div>
         </header>
 
@@ -499,12 +524,20 @@ export default function Home() {
                       Você começou "{activeSession.scriptureReference}" e pode retomar quando quiser.
                     </p>
                   </div>
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest ${
-                    activeSession.status === 'WAITING_PARTNER'
-                      ? 'bg-orange-100 text-orange-700'
-                      : 'bg-love-100 text-love-700'
-                  }`}>
-                    {activeSession.status === 'WAITING_PARTNER' ? 'Aguardando parceiro(a)' : 'Em progresso'}
+                  <span
+                    className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest ${
+                      activeSessionMyProgress?.status === 'COMPLETED'
+                        ? 'bg-green-100 text-green-700'
+                        : activeSession.status === 'WAITING_PARTNER'
+                        ? 'bg-orange-100 text-orange-700'
+                        : 'bg-love-100 text-love-700'
+                    }`}
+                  >
+                    {activeSessionMyProgress?.status === 'COMPLETED'
+                      ? 'Você já concluiu'
+                      : activeSession.status === 'WAITING_PARTNER'
+                      ? 'Aguardando parceiro(a)'
+                      : 'Em progresso'}
                   </span>
                 </div>
                 <div className="flex w-56 flex-col sm:flex-row gap-3">
@@ -640,13 +673,19 @@ export default function Home() {
                   </div>
                   <div className="ml-3">
                     <p className="text-sm text-orange-700">
-                      Você concluiu sua parte! Aguardando {partnerName} finalizar para marcar como completo.
-                      <button 
-                        onClick={() => window.location.reload()} 
-                        className="ml-2 font-bold underline hover:text-orange-800"
-                      >
-                        Verificar agora
-                      </button>
+                      {userHasCompleted
+                        ? `Você concluiu sua parte! Aguardando ${partnerName ?? 'seu parceiro(a)'} finalizar para encerrar.`
+                        : partnerHasCompleted
+                        ? `${partnerName ?? 'Seu parceiro(a)'} já concluiu! Finalize sua parte para concluir o devocional.`
+                        : 'Sincronizando com seu parceiro(a)...'}
+                      {userHasCompleted && (
+                        <button
+                          onClick={() => mutateCurrentSession()}
+                          className="ml-2 font-bold underline hover:text-orange-800"
+                        >
+                          Verificar agora
+                        </button>
+                      )}
                     </p>
                   </div>
                 </div>
@@ -785,20 +824,20 @@ export default function Home() {
             <div className="flex justify-center pt-6 pb-12">
                <button
                  onClick={handleFinishSession}
-                 disabled={sessionData.status === 'WAITING_PARTNER' || isFinishingDevotional}
+                 disabled={isFinishingDevotional || userHasCompleted}
                  className={`px-12 py-4 rounded-full font-bold text-lg shadow-xl transition-all flex items-center gap-3 ${
-                    sessionData.status === 'WAITING_PARTNER' || isFinishingDevotional
+                    isFinishingDevotional || userHasCompleted
                     ? 'bg-slate-300 text-slate-500 cursor-not-allowed' 
                     : 'bg-love-600 text-white shadow-love-500/30 hover:scale-105 active:scale-95'
                  }`}
                >
-                 {sessionData.status === 'WAITING_PARTNER' ? (
-                    <>
-                      <Loader2 className="animate-spin" /> Aguardando {partnerName}...
-                    </>
-                 ) : isFinishingDevotional ? (
+                 {isFinishingDevotional ? (
                     <>
                       <Loader2 className="animate-spin" /> Salvando progresso...
+                    </>
+                 ) : userHasCompleted ? (
+                    <>
+                      <CheckCircle /> Você já concluiu
                     </>
                  ) : (
                     <>

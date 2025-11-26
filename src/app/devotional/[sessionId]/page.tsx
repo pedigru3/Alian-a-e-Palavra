@@ -5,8 +5,6 @@ import { redirect, notFound } from 'next/navigation';
 import Link from 'next/link';
 import { DeleteDevotionalButton } from '@/components/DeleteDevotionalButton';
 
-const SAME_DAY_WINDOW_MS = 1000 * 60 * 60 * 24;
-
 interface DevotionalReviewPageProps {
   params: { sessionId: string };
 }
@@ -38,13 +36,9 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
   const devotionalSession = await prisma.devotionalSession.findUnique({
     where: { id: params.sessionId },
     include: {
-      user: {
-        include: {
-          couple: {
-            include: { users: true },
-          },
-        },
-      },
+      couple: { include: { users: true } },
+      userProgress: { include: { user: true } },
+      notes: { include: { user: true } },
     },
   });
 
@@ -52,55 +46,28 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
     notFound();
   }
 
-  const allowedUserIds = new Set<string>();
-  if (currentUser.couple) {
-    currentUser.couple.users.forEach((user) => allowedUserIds.add(user.id));
-  } else {
-    allowedUserIds.add(currentUser.id);
-  }
-
-  if (!allowedUserIds.has(devotionalSession.userId)) {
+  if (!currentUser.coupleId || currentUser.coupleId !== devotionalSession.coupleId) {
     notFound();
   }
 
-  const coupleUsers = devotionalSession.user.couple?.users ?? [];
-  const partner = coupleUsers.find((user) => user.id !== devotionalSession.userId) ?? null;
-
-  let partnerSessionId: string | null = null;
+  const coupleUsers = devotionalSession.couple.users;
+  const partner = coupleUsers.find((user) => user.id !== currentUser.id) ?? null;
   const partnerFirstName = partner?.name?.split(' ')[0] ?? null;
-  const isOwnerView = devotionalSession.userId === currentUser.id;
+  const viewerProgress =
+    devotionalSession.userProgress.find((progress) => progress.userId === currentUser.id) ?? null;
+  const partnerProgress =
+    partner?.id
+      ? devotionalSession.userProgress.find((progress) => progress.userId === partner.id) ?? null
+      : null;
 
-  if (partner) {
-    const sessionDate = devotionalSession.date instanceof Date ? devotionalSession.date : new Date(devotionalSession.date);
-    const minDate = new Date(sessionDate.getTime() - SAME_DAY_WINDOW_MS);
-    const maxDate = new Date(sessionDate.getTime() + SAME_DAY_WINDOW_MS);
+  const notes = devotionalSession.notes
+    .slice()
+    .sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
 
-    const partnerSession = await prisma.devotionalSession.findFirst({
-      where: {
-        userId: partner.id,
-        scriptureReference: devotionalSession.scriptureReference,
-        date: {
-          gte: minDate,
-          lte: maxDate,
-        },
-      },
-      orderBy: { date: 'desc' },
-    });
-    partnerSessionId = partnerSession?.id ?? null;
-  }
-
-  const noteSessionIds = [devotionalSession.id];
-  if (partnerSessionId) {
-    noteSessionIds.push(partnerSessionId);
-  }
-
-  const notes = await prisma.note.findMany({
-    where: { sessionId: { in: noteSessionIds } },
-    include: { user: true },
-    orderBy: { createdAt: 'asc' },
-  });
-
-  const participants = coupleUsers.length > 0 ? coupleUsers : [devotionalSession.user];
+  const participants = coupleUsers;
 
   const questions: string[] = (() => {
     try {
@@ -119,14 +86,23 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
 
   const waitingLabel = (() => {
     if (!partnerFirstName) {
-      return isOwnerView ? 'Aguardando parceiro(a)' : 'Aguardando confirmação';
+      return viewerProgress?.status === 'COMPLETED' ? 'Aguardando parceiro(a)' : 'Aguardando confirmação';
     }
-    return isOwnerView ? `Aguardando ${partnerFirstName}` : 'Aguardando você';
+    if (viewerProgress?.status === 'COMPLETED') {
+      return `Aguardando ${partnerFirstName}`;
+    }
+    if (partnerProgress?.status === 'COMPLETED') {
+      return 'Aguardando você';
+    }
+    return 'Em sincronização';
   })();
 
-  const waitingHeading = isOwnerView
-    ? `Devocional aguardando ${partnerFirstName ?? 'confirmação do parceiro'}`
-    : 'Devocional aguardando sua confirmação';
+  const waitingHeading =
+    viewerProgress?.status === 'COMPLETED'
+      ? `Devocional aguardando ${partnerFirstName ?? 'confirmação do parceiro'}`
+      : partnerProgress?.status === 'COMPLETED'
+      ? 'Devocional aguardando sua confirmação'
+      : 'Devocional em andamento';
 
   const statusMap: Record<string, { label: string; badge: string; text: string; heading: string }> = {
     COMPLETED: {

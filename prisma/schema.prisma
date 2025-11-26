@@ -21,24 +21,26 @@ model User {
   couple        Couple?   @relation(fields: [coupleId], references: [id])
 
   notes         Note[]
-  sessions      DevotionalSession[]
+  initiatedSessions DevotionalSession[] @relation("InitiatedSessions")
+  sessionProgress   DevotionalSessionUserProgress[]
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(6)
 }
 
 model Couple {
   id        String   @id @default(cuid())
   code      String   @unique // New field for the unique couple code
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @db.Timestamptz(6)
   users     User[]
   weeklyProgress WeeklyProgress[]
+  devotionalSessions DevotionalSession[]
 }
 
 model DevotionalSession {
   id                  String   @id @default(cuid())
-  date                DateTime @default(now())
+  date                DateTime @default(now()) @db.Timestamptz(6)
   scriptureReference  String
   theme               String
   culturalContext     String
@@ -48,15 +50,23 @@ model DevotionalSession {
   scriptureText       String?
   status              String
   notes               Note[]
-  user                User     @relation(fields: [userId], references: [id])
-  userId              String
+  couple              Couple   @relation(fields: [coupleId], references: [id])
+  coupleId            String
+  initiatedBy         User     @relation("InitiatedSessions", fields: [initiatedByUserId], references: [id])
+  initiatedByUserId   String
+  userProgress        DevotionalSessionUserProgress[]
+
+  createdAt           DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt           DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([coupleId, date])
 }
 
 model Note {
   id          String   @id @default(cuid())
   content     String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
   session     DevotionalSession @relation(fields: [sessionId], references: [id])
   sessionId   String
   user        User     @relation(fields: [userId], references: [id])
@@ -65,12 +75,29 @@ model Note {
 
 model WeeklyProgress {
   id                String   @id @default(cuid())
-  weekStart         DateTime
-  weekEnd           DateTime
+  weekStart         DateTime @db.Timestamptz(6)
+  weekEnd           DateTime @db.Timestamptz(6)
   daysCompleted     String   // Storing as a comma-separated string of booleans
   spiritualGrowthXP Int
   couple            Couple   @relation(fields: [coupleId], references: [id])
   coupleId          String
 
   @@unique([coupleId, weekStart])
+}
+
+model DevotionalSessionUserProgress {
+  id          String   @id @default(cuid())
+  session     DevotionalSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionId   String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  status      String   @default("IN_PROGRESS")
+  completedAt DateTime? @db.Timestamptz(6)
+
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
+
+  @@unique([sessionId, userId])
+  @@index([sessionId])
+  @@index([userId])
 }

@@ -4,7 +4,6 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 
 const DEFAULT_DAYS_COMPLETED = Array(7).fill('false').join(',');
-const SAME_DAY_WINDOW_MS = 1000 * 60 * 60 * 24;
 
 const normalizeDaysArray = (raw?: string | null) =>
   (raw ? raw.split(',') : Array(7).fill('false')).map((value) => value === 'true' || value === '1');
@@ -15,15 +14,15 @@ function getWeekBoundaries(date: Date = new Date()) {
   const d = new Date(date);
   const dayOfWeek = d.getDay();
   const diffToMonday = (dayOfWeek === 0 ? -6 : 1) - dayOfWeek;
-  
+
   const weekStart = new Date(d);
   weekStart.setDate(d.getDate() + diffToMonday);
   weekStart.setHours(0, 0, 0, 0);
-  
+
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekStart.getDate() + 6);
   weekEnd.setHours(23, 59, 59, 999);
-  
+
   return { weekStart, weekEnd };
 }
 
@@ -31,15 +30,14 @@ async function markWeeklyProgressCompletion(coupleId: string) {
   const todayIndex = (new Date().getDay() + 6) % 7;
   const { weekStart, weekEnd } = getWeekBoundaries();
 
-  // Find existing progress for this week (using date range to avoid timestamp mismatch)
   let progress = await prisma.weeklyProgress.findFirst({
     where: {
       coupleId,
       weekStart: {
         gte: weekStart,
-        lt: new Date(weekStart.getTime() + 24 * 60 * 60 * 1000) // Same day
-      }
-    }
+        lt: new Date(weekStart.getTime() + 24 * 60 * 60 * 1000),
+      },
+    },
   });
 
   if (!progress) {
@@ -76,13 +74,18 @@ export async function GET(request: Request, { params }: { params: { id: string }
   try {
     const session = await prisma.devotionalSession.findUnique({
       where: { id },
-      include: { notes: true }
+      include: {
+        couple: { include: { users: true } },
+        userProgress: { include: { user: true } },
+        notes: { include: { user: true } },
+      },
     });
-    if (session) {
-      return NextResponse.json(session);
-    } else {
+
+    if (!session) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
+
+    return NextResponse.json(session);
   } catch (error) {
     console.error('Error fetching session:', error);
     return NextResponse.json({ error: 'Failed to fetch session' }, { status: 500 });
@@ -91,100 +94,114 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
   const { id } = params;
+
+  const authedSession = await getServerSession(authOptions);
+  if (!authedSession || !authedSession.user?.email) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
-    const body = await request.json();
-    const { scriptureReference, theme, culturalContext, literaryContext, christConnection, applicationQuestions, status, scriptureText } = body;
-    
-    // 1. Fetch the current session to get userId and details
-    const currentSession = await prisma.devotionalSession.findUnique({
-      where: { id },
-      include: { user: { include: { couple: { include: { users: true } } } } }
+    const currentUser = await prisma.user.findUnique({
+      where: { email: authedSession.user.email },
+      include: { couple: true },
     });
 
-    if (!currentSession) {
-      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    if (!currentUser || !currentUser.coupleId) {
+      return NextResponse.json({ error: 'User must belong to a couple to update sessions.' }, { status: 403 });
     }
 
-    let newStatus = status;
-    let shouldMarkProgress = false;
-
-    // 2. If trying to complete, check partner's status
-    const shouldAttemptCoupleSync = status === 'COMPLETED';
-
-    if (shouldAttemptCoupleSync) {
-      const couple = currentSession.user.couple;
-      
-      if (couple) {
-        const partner = couple.users.find(u => u.id !== currentSession.userId);
-        
-        if (partner) {
-          // Find partner's session for the same scripture/date (approx)
-          const sessionDate = currentSession.date instanceof Date ? currentSession.date : new Date(currentSession.date);
-          const minDate = new Date(sessionDate.getTime() - SAME_DAY_WINDOW_MS);
-          const maxDate = new Date(sessionDate.getTime() + SAME_DAY_WINDOW_MS);
-
-          const partnerSession = await prisma.devotionalSession.findFirst({
-            where: {
-              userId: partner.id,
-              scriptureReference: currentSession.scriptureReference,
-              date: {
-                gte: minDate,
-                lte: maxDate,
-              },
-            },
-            orderBy: { date: 'desc' }
-          });
-
-          if (!partnerSession || (partnerSession.status !== 'COMPLETED' && partnerSession.status !== 'WAITING_PARTNER')) {
-            // Partner hasn't finished yet
-            newStatus = 'WAITING_PARTNER';
-          } else if (partnerSession.status === 'WAITING_PARTNER') {
-             // Partner is waiting for us! Update partner to COMPLETED too
-             await prisma.devotionalSession.update({
-               where: { id: partnerSession.id },
-               data: { status: 'COMPLETED' }
-             });
-             // Both completed now - mark progress!
-             shouldMarkProgress = true;
-          } else if (partnerSession.status === 'COMPLETED') {
-             // Partner already completed - we're completing now
-             shouldMarkProgress = true;
-          }
-        } else {
-          // No partner yet, but user is in a couple - still mark progress
-          shouldMarkProgress = true;
-        }
-      } else {
-        // User not in a couple - shouldn't happen but handle gracefully
-        shouldMarkProgress = false;
-      }
-    }
-
-    const dataToUpdate: Record<string, unknown> = {
+    const body = await request.json();
+    const {
       scriptureReference,
       theme,
       culturalContext,
       literaryContext,
       christConnection,
       applicationQuestions,
-      status: newStatus,
-    };
+      status,
+      scriptureText,
+    } = body;
 
-    if (scriptureText !== undefined) {
-      dataToUpdate.scriptureText = scriptureText;
-    }
-
-    const session = await prisma.devotionalSession.update({
+    const sessionRecord = await prisma.devotionalSession.findUnique({
       where: { id },
-      data: dataToUpdate,
+      include: {
+        couple: true,
+        userProgress: true,
+      },
     });
 
-    // Mark weekly progress when both partners complete (or solo completion for incomplete couples)
-    if (shouldMarkProgress && currentSession.user.coupleId) {
-      await markWeeklyProgressCompletion(currentSession.user.coupleId);
+    if (!sessionRecord) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    return NextResponse.json(session);
+    if (sessionRecord.coupleId !== currentUser.coupleId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const progressEntry = sessionRecord.userProgress.find((progress) => progress.userId === currentUser.id);
+    if (!progressEntry) {
+      return NextResponse.json({ error: 'User progress not found for this session' }, { status: 403 });
+    }
+
+    const sessionUpdateData: Record<string, unknown> = {};
+    if (scriptureReference !== undefined) sessionUpdateData.scriptureReference = scriptureReference;
+    if (theme !== undefined) sessionUpdateData.theme = theme;
+    if (culturalContext !== undefined) sessionUpdateData.culturalContext = culturalContext;
+    if (literaryContext !== undefined) sessionUpdateData.literaryContext = literaryContext;
+    if (christConnection !== undefined) sessionUpdateData.christConnection = christConnection;
+    if (applicationQuestions !== undefined) sessionUpdateData.applicationQuestions = applicationQuestions;
+    if (scriptureText !== undefined) sessionUpdateData.scriptureText = scriptureText;
+
+    let userCompleted = false;
+    if (status === 'COMPLETED' && progressEntry.status !== 'COMPLETED') {
+      await prisma.devotionalSessionUserProgress.update({
+        where: { sessionId_userId: { sessionId: id, userId: currentUser.id } },
+        data: { status: 'COMPLETED', completedAt: new Date() },
+      });
+      userCompleted = true;
+    }
+
+    const updatedProgress = await prisma.devotionalSessionUserProgress.findMany({
+      where: { sessionId: id },
+    });
+
+    const totalUsers = updatedProgress.length;
+    const completedCount = updatedProgress.filter((progress) => progress.status === 'COMPLETED').length;
+
+    let aggregateStatus: 'IN_PROGRESS' | 'WAITING_PARTNER' | 'COMPLETED' = 'IN_PROGRESS';
+    if (completedCount === 0) {
+      aggregateStatus = 'IN_PROGRESS';
+    } else if (completedCount < totalUsers) {
+      aggregateStatus = 'WAITING_PARTNER';
+    } else {
+      aggregateStatus = 'COMPLETED';
+    }
+
+    if (sessionRecord.status !== aggregateStatus) {
+      sessionUpdateData.status = aggregateStatus;
+    }
+
+    if (Object.keys(sessionUpdateData).length > 0) {
+      await prisma.devotionalSession.update({
+        where: { id },
+        data: sessionUpdateData,
+      });
+    }
+
+    if (aggregateStatus === 'COMPLETED' && userCompleted) {
+      await markWeeklyProgressCompletion(sessionRecord.coupleId);
+    }
+
+    const updatedSession = await prisma.devotionalSession.findUnique({
+      where: { id },
+      include: {
+        couple: { include: { users: true } },
+        userProgress: { include: { user: true } },
+        notes: { include: { user: true } },
+      },
+    });
+
+    return NextResponse.json(updatedSession);
   } catch (error) {
     console.error('Error updating session:', error);
     return NextResponse.json({ error: 'Failed to update session' }, { status: 500 });
@@ -193,51 +210,45 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   const { id } = params;
+
+  const authedSession = await getServerSession(authOptions);
+  if (!authedSession || !authedSession.user?.email) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
-    const session = await getServerSession(authOptions);
-    
-    if (!session || !session.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const currentUser = await prisma.user.findUnique({
-      where: { email: session.user.email },
-      include: { couple: { include: { users: true } } }
+      where: { email: authedSession.user.email },
+      include: { couple: true },
     });
 
-    if (!currentUser) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    if (!currentUser || !currentUser.coupleId) {
+      return NextResponse.json({ error: 'User must belong to a couple.' }, { status: 403 });
     }
 
-    // Fetch the session to delete
-    const sessionToDelete = await prisma.devotionalSession.findUnique({
+    const sessionRecord = await prisma.devotionalSession.findUnique({
       where: { id },
-      include: { user: { include: { couple: { include: { users: true } } } } }
     });
 
-    if (!sessionToDelete) {
+    if (!sessionRecord) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    // Check if user has permission to delete (owner or partner in same couple)
-    const isOwner = sessionToDelete.userId === currentUser.id;
-    const isPartner = currentUser.coupleId && 
-                      sessionToDelete.user.coupleId === currentUser.coupleId &&
-                      sessionToDelete.user.couple?.users.some(u => u.id === currentUser.id);
-
-    if (!isOwner && !isPartner) {
-      return NextResponse.json({ error: 'Forbidden: You can only delete your own sessions or your partner\'s sessions' }, { status: 403 });
+    if (sessionRecord.coupleId !== currentUser.coupleId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    // Delete all notes associated with this session first
-    await prisma.note.deleteMany({
-      where: { sessionId: id }
-    });
-
-    // Delete the session
-    await prisma.devotionalSession.delete({
-      where: { id }
-    });
+    await prisma.$transaction([
+      prisma.devotionalSessionUserProgress.deleteMany({
+        where: { sessionId: id },
+      }),
+      prisma.note.deleteMany({
+        where: { sessionId: id },
+      }),
+      prisma.devotionalSession.delete({
+        where: { id },
+      }),
+    ]);
 
     return NextResponse.json({ message: 'Session deleted successfully' }, { status: 200 });
   } catch (error) {
@@ -245,5 +256,3 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     return NextResponse.json({ error: 'Failed to delete session' }, { status: 500 });
   }
 }
-
-

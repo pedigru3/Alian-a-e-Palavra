@@ -31,7 +31,13 @@ import { ProgressBar } from '@/components/ProgressBar';
 import { DayBadge } from '@/components/DayBadge';
 import { AuthForm } from '@/components/AuthForm';
 import { CoupleConnect } from '@/components/CoupleConnect';
+import { XpToast } from '@/components/XpToast';
 import Link from 'next/link';
+
+// Calcula XP necessário para o próximo nível: 20 * level
+function getXpForLevel(level: number): number {
+  return 20 * level;
+}
 
 // --- SWR Fetcher ---
 const fetcher = async (url: string) => {
@@ -63,6 +69,19 @@ type SessionWithRelations = SessionWithProgress & {
   couple: Couple & { users: User[] };
 };
 
+type XpResult = {
+  previousLevel: number;
+  previousXp: number;
+  newLevel: number;
+  newXp: number;
+  leveledUp: boolean;
+  xpGained: number;
+} | null;
+
+type SessionApiResponse = SessionWithRelations & {
+  xpResult?: XpResult;
+};
+
 export default function Home() {
   // --- Authentication State ---
   const { data: session, status } = useSession();
@@ -82,6 +101,10 @@ export default function Home() {
   // Notes Local State (for immediate typing feedback)
   const [myNote, setMyNote] = useState('');
   const previousSessionIdRef = useRef<string | null>(null);
+
+  // XP Toast State
+  const [xpToast, setXpToast] = useState<{ xpGained: number; leveledUp: boolean; newLevel?: number } | null>(null);
+  const [animateXp, setAnimateXp] = useState(false);
 
   // --- SWR Hooks ---
   const { data: user, error: userError, mutate: mutateUser } = useSWR<UserWithCouple>(
@@ -304,7 +327,8 @@ export default function Home() {
         body: JSON.stringify({ status: 'COMPLETED' }),
       });
 
-      const updatedSession: SessionWithRelations = await res.json();
+      const response: SessionApiResponse = await res.json();
+      const { xpResult, ...updatedSession } = response;
 
       if (updatedSession) {
         setSessionData(updatedSession);
@@ -314,6 +338,18 @@ export default function Home() {
         setSessionData(null);
         setScriptureInput('');
         mutateProgress();
+        
+        // Se ganhou XP, mostrar toast e animar barra
+        if (xpResult) {
+          setAnimateXp(true);
+          setXpToast({
+            xpGained: xpResult.xpGained,
+            leveledUp: xpResult.leveledUp,
+            newLevel: xpResult.newLevel,
+          });
+          // Atualiza dados do usuário para refletir novo XP/Level
+          mutateUser();
+        }
       }
 
       mutateCurrentSession();
@@ -445,11 +481,13 @@ export default function Home() {
               <p className="text-xs sm:text-sm text-love-900/60 truncate">Bem-vindo, {user.name} {partnerName ? `& ${partnerName}` : ''}</p>
             </div>
             <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
-             <div className="text-right flex flex-col items-end gap-1 flex-1 sm:flex-initial min-w-[160px] sm:min-w-[250px] sm:max-w-[200px]">
-               <span className="text-[10px] self-start sm:text-xs uppercase tracking-wider text-love-800 font-semibold leading-tight">Nível de Intimidade</span>
-               <div className="w-full">
-                 <ProgressBar progress={progress?.spiritualGrowthXP || 0} />
-               </div>
+             <div className="flex-1 sm:flex-initial min-w-[140px] sm:min-w-[200px] sm:max-w-[240px]">
+               <ProgressBar 
+                 level={user.couple?.level ?? 1} 
+                 xp={user.couple?.xp ?? 0} 
+                 maxXp={getXpForLevel(user.couple?.level ?? 1)}
+                 animate={animateXp}
+               />
              </div>
              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br from-love-400 to-love-600 flex items-center justify-center text-white font-serif font-bold text-lg sm:text-xl shadow-lg flex-shrink-0">
                {user.name.charAt(0)}
@@ -850,6 +888,18 @@ export default function Home() {
         )}
       </div>
 
+      {/* XP Toast Notification */}
+      {xpToast && (
+        <XpToast
+          xpGained={xpToast.xpGained}
+          leveledUp={xpToast.leveledUp}
+          newLevel={xpToast.newLevel}
+          onClose={() => {
+            setXpToast(null);
+            setAnimateXp(false);
+          }}
+        />
+      )}
     </div>
   );
 }

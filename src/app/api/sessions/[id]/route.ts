@@ -53,20 +53,73 @@ async function markWeeklyProgressCompletion(coupleId: string) {
   }
 
   const daysCompletedArray = normalizeDaysArray(progress.daysCompleted);
-  let newXP = progress.spiritualGrowthXP ?? 0;
 
   if (!daysCompletedArray[todayIndex]) {
     daysCompletedArray[todayIndex] = true;
-    newXP = Math.min(100, newXP + 15);
   }
 
   await prisma.weeklyProgress.update({
     where: { id: progress.id },
     data: {
       daysCompleted: serializeDaysArray(daysCompletedArray),
-      spiritualGrowthXP: newXP,
     },
   });
+}
+
+// Calcula XP necessário para o próximo nível: 20 * level
+function getXpForLevel(level: number): number {
+  return 20 * level;
+}
+
+// Adiciona XP ao casal e calcula level up
+async function addXpToCouple(coupleId: string, xpGained: number): Promise<{
+  previousLevel: number;
+  previousXp: number;
+  newLevel: number;
+  newXp: number;
+  leveledUp: boolean;
+  xpGained: number;
+}> {
+  const couple = await prisma.couple.findUnique({
+    where: { id: coupleId },
+  });
+
+  if (!couple) {
+    throw new Error('Couple not found');
+  }
+
+  const previousLevel = couple.level;
+  const previousXp = couple.xp;
+  
+  let currentLevel = couple.level;
+  let currentXp = couple.xp + xpGained;
+  let leveledUp = false;
+
+  // Verifica se subiu de nível (pode subir múltiplos níveis de uma vez)
+  let xpNeeded = getXpForLevel(currentLevel);
+  while (currentXp >= xpNeeded) {
+    currentXp -= xpNeeded;
+    currentLevel++;
+    leveledUp = true;
+    xpNeeded = getXpForLevel(currentLevel);
+  }
+
+  await prisma.couple.update({
+    where: { id: coupleId },
+    data: {
+      level: currentLevel,
+      xp: currentXp,
+    },
+  });
+
+  return {
+    previousLevel,
+    previousXp,
+    newLevel: currentLevel,
+    newXp: currentXp,
+    leveledUp,
+    xpGained,
+  };
 }
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
@@ -188,8 +241,12 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       });
     }
 
-    if (aggregateStatus === 'COMPLETED' && userCompleted) {
+    let xpResult = null;
+    
+    // Quando o devocional é COMPLETADO (ambos terminaram), adiciona XP
+    if (aggregateStatus === 'COMPLETED' && sessionRecord.status !== 'COMPLETED') {
       await markWeeklyProgressCompletion(sessionRecord.coupleId);
+      xpResult = await addXpToCouple(sessionRecord.coupleId, 10);
     }
 
     const updatedSession = await prisma.devotionalSession.findUnique({
@@ -201,7 +258,10 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       },
     });
 
-    return NextResponse.json(updatedSession);
+    return NextResponse.json({
+      ...updatedSession,
+      xpResult,
+    });
   } catch (error) {
     console.error('Error updating session:', error);
     return NextResponse.json({ error: 'Failed to update session' }, { status: 500 });

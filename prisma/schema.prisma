@@ -31,6 +31,8 @@ model User {
 model Couple {
   id        String   @id @default(cuid())
   code      String   @unique // New field for the unique couple code
+  level     Int      @default(1)
+  xp        Int      @default(0)
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @db.Timestamptz(6)
   users     User[]

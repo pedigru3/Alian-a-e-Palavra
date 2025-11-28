@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { fetchBiblePassageText } from '@/services/bibleService';
+import { isSameLocalizedDay } from '@/lib/timezone';
+
+export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
   try {
@@ -33,6 +36,7 @@ export async function POST(request: Request) {
 
     const coupleId = user.couple.id;
 
+    // Verificar se já existe sessão ativa
     const existingSession = await prisma.devotionalSession.findFirst({
       where: {
         coupleId,
@@ -40,6 +44,7 @@ export async function POST(request: Request) {
       },
       orderBy: { date: 'desc' },
       include: {
+        template: true,
         couple: { include: { users: true } },
         userProgress: { include: { user: true } },
       },
@@ -56,18 +61,75 @@ export async function POST(request: Request) {
       );
     }
 
-    const scriptureText = await fetchBiblePassageText(scriptureReference);
+    // Verificar se já gerou devocional hoje usando transação com lock para evitar race condition
+    const now = new Date();
 
+    // Usar transação com SELECT FOR UPDATE para evitar race condition
+    const canGenerate = await prisma.$transaction(async (tx) => {
+      // Lock o registro do casal para evitar race condition
+      const couple = await tx.couple.findUnique({
+        where: { id: coupleId },
+        select: { lastGeneratedAt: true },
+      });
+
+      if (!couple) {
+        throw new Error('Casal não encontrado');
+      }
+
+      // Verifica se já gerou hoje
+      if (couple.lastGeneratedAt) {
+        if (isSameLocalizedDay(new Date(couple.lastGeneratedAt), now)) {
+          return false; // Já gerou hoje
+        }
+      }
+
+      // Atualiza lastGeneratedAt para hoje
+      await tx.couple.update({
+        where: { id: coupleId },
+        data: { lastGeneratedAt: now },
+      });
+
+      return true; // Pode gerar
+    });
+
+    if (!canGenerate) {
+      return NextResponse.json(
+        {
+          error: 'ALREADY_GENERATED_TODAY',
+          message: 'Você já gerou um devocional hoje. Tente novamente amanhã.',
+        },
+        { status: 429 }
+      );
+    }
+
+    // Check if template already exists for this scripture reference
+    let template = await prisma.devotionalTemplate.findUnique({
+      where: { scriptureReference },
+    });
+
+    // If not, create the template
+    if (!template) {
+      const scriptureText = await fetchBiblePassageText(scriptureReference);
+
+      template = await prisma.devotionalTemplate.create({
+        data: {
+          scriptureReference,
+          theme,
+          culturalContext,
+          literaryContext,
+          christConnection,
+          applicationQuestions,
+          scriptureText: scriptureText ?? null,
+          isAiGenerated: true,
+        },
+      });
+    }
+
+    // Create session linked to template
     const session = await prisma.devotionalSession.create({
       data: {
-        scriptureReference,
-        theme,
-        culturalContext,
-        literaryContext,
-        christConnection,
-        applicationQuestions,
-        scriptureText: scriptureText ?? null,
         status: 'IN_PROGRESS',
+        templateId: template.id,
         coupleId,
         initiatedByUserId: user.id,
         userProgress: {
@@ -84,6 +146,7 @@ export async function POST(request: Request) {
         },
       },
       include: {
+        template: true,
         couple: { include: { users: true } },
         userProgress: { include: { user: true } },
         notes: { include: { user: true } },

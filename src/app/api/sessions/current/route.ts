@@ -29,6 +29,7 @@ export async function GET(request: Request) {
       },
       orderBy: { date: 'desc' },
       include: {
+        template: true,
         couple: { include: { users: true } },
         userProgress: { include: { user: true } },
         notes: { include: { user: true } },

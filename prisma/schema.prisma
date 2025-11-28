@@ -29,29 +29,43 @@ model User {
 }
 
 model Couple {
-  id        String   @id @default(cuid())
-  code      String   @unique // New field for the unique couple code
-  level     Int      @default(1)
-  xp        Int      @default(0)
-  createdAt DateTime @default(now()) @db.Timestamptz(6)
-  updatedAt DateTime @updatedAt @db.Timestamptz(6)
-  users     User[]
-  weeklyProgress WeeklyProgress[]
+  id              String    @id @default(cuid())
+  code            String    @unique // New field for the unique couple code
+  level           Int       @default(1)
+  xp              Int       @default(0)
+  lastGeneratedAt DateTime? @db.Timestamptz(6) // Última vez que gerou um devocional
+  createdAt       DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(6)
+  users           User[]
+  weeklyProgress  WeeklyProgress[]
   devotionalSessions DevotionalSession[]
+}
+
+model DevotionalTemplate {
+  id                   String   @id @default(cuid())
+  scriptureReference   String   @unique
+  theme                String
+  culturalContext      String
+  literaryContext      String
+  christConnection     String
+  applicationQuestions String
+  scriptureText        String?
+  isAiGenerated        Boolean  @default(true)
+  sessions             DevotionalSession[]
+
+  createdAt            DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @db.Timestamptz(6)
 }
 
 model DevotionalSession {
   id                  String   @id @default(cuid())
   date                DateTime @default(now()) @db.Timestamptz(6)
-  scriptureReference  String
-  theme               String
-  culturalContext     String
-  literaryContext     String
-  christConnection    String
-  applicationQuestions String
-  scriptureText       String?
   status              String
   notes               Note[]
+  
+  template            DevotionalTemplate @relation(fields: [templateId], references: [id])
+  templateId          String
+  
   couple              Couple   @relation(fields: [coupleId], references: [id])
   coupleId            String
   initiatedBy         User     @relation("InitiatedSessions", fields: [initiatedByUserId], references: [id])
@@ -62,6 +76,7 @@ model DevotionalSession {
   updatedAt           DateTime @updatedAt @db.Timestamptz(6)
 
   @@index([coupleId, date])
+  @@index([templateId])
 }
 
 model Note {

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { getLocalizedTodayIndex, getLocalizedWeekBoundaries } from '@/lib/timezone';
 
 const DEFAULT_DAYS_COMPLETED = Array(7).fill('false').join(',');
 
@@ -10,25 +11,9 @@ const normalizeDaysArray = (raw?: string | null) =>
 
 const serializeDaysArray = (days: boolean[]) => days.map((value) => (value ? 'true' : 'false')).join(',');
 
-function getWeekBoundaries(date: Date = new Date()) {
-  const d = new Date(date);
-  const dayOfWeek = d.getDay();
-  const diffToMonday = (dayOfWeek === 0 ? -6 : 1) - dayOfWeek;
-
-  const weekStart = new Date(d);
-  weekStart.setDate(d.getDate() + diffToMonday);
-  weekStart.setHours(0, 0, 0, 0);
-
-  const weekEnd = new Date(weekStart);
-  weekEnd.setDate(weekStart.getDate() + 6);
-  weekEnd.setHours(23, 59, 59, 999);
-
-  return { weekStart, weekEnd };
-}
-
 async function markWeeklyProgressCompletion(coupleId: string) {
-  const todayIndex = (new Date().getDay() + 6) % 7;
-  const { weekStart, weekEnd } = getWeekBoundaries();
+  const todayIndex = getLocalizedTodayIndex();
+  const { weekStart, weekEnd } = getLocalizedWeekBoundaries();
 
   let progress = await prisma.weeklyProgress.findFirst({
     where: {
@@ -128,6 +113,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
     const session = await prisma.devotionalSession.findUnique({
       where: { id },
       include: {
+        template: true,
         couple: { include: { users: true } },
         userProgress: { include: { user: true } },
         notes: { include: { user: true } },
@@ -164,16 +150,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     }
 
     const body = await request.json();
-    const {
-      scriptureReference,
-      theme,
-      culturalContext,
-      literaryContext,
-      christConnection,
-      applicationQuestions,
-      status,
-      scriptureText,
-    } = body;
+    const { status } = body;
 
     const sessionRecord = await prisma.devotionalSession.findUnique({
       where: { id },
@@ -197,13 +174,6 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     }
 
     const sessionUpdateData: Record<string, unknown> = {};
-    if (scriptureReference !== undefined) sessionUpdateData.scriptureReference = scriptureReference;
-    if (theme !== undefined) sessionUpdateData.theme = theme;
-    if (culturalContext !== undefined) sessionUpdateData.culturalContext = culturalContext;
-    if (literaryContext !== undefined) sessionUpdateData.literaryContext = literaryContext;
-    if (christConnection !== undefined) sessionUpdateData.christConnection = christConnection;
-    if (applicationQuestions !== undefined) sessionUpdateData.applicationQuestions = applicationQuestions;
-    if (scriptureText !== undefined) sessionUpdateData.scriptureText = scriptureText;
 
     let userCompleted = false;
     if (status === 'COMPLETED' && progressEntry.status !== 'COMPLETED') {
@@ -252,6 +222,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     const updatedSession = await prisma.devotionalSession.findUnique({
       where: { id },
       include: {
+        template: true,
         couple: { include: { users: true } },
         userProgress: { include: { user: true } },
         notes: { include: { user: true } },

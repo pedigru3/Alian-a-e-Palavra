@@ -33,6 +33,7 @@ import { AuthForm } from '@/components/AuthForm';
 import { CoupleConnect } from '@/components/CoupleConnect';
 import { XpToast } from '@/components/XpToast';
 import Link from 'next/link';
+import { isSameLocalizedDay } from '@/lib/timezone';
 
 // Calcula XP necessário para o próximo nível: 20 * level
 function getXpForLevel(level: number): number {
@@ -60,7 +61,21 @@ interface UserWithCouple extends User {
 type ProgressWithUser = DevotionalSessionUserProgress & { user: User };
 type NoteWithUser = Note & { user: User };
 
-type SessionWithProgress = DevotionalSession & {
+type SessionWithTemplate = DevotionalSession & {
+  template: {
+    id: string;
+    scriptureReference: string;
+    theme: string;
+    culturalContext: string;
+    literaryContext: string;
+    christConnection: string;
+    applicationQuestions: string;
+    scriptureText: string | null;
+    isAiGenerated: boolean;
+  };
+};
+
+type SessionWithProgress = SessionWithTemplate & {
   userProgress: ProgressWithUser[];
 };
 
@@ -116,6 +131,12 @@ export default function Home() {
   const partner = user?.couple?.users?.find((u: User) => u.id !== userId);
   const partnerName = partner?.name;
   const coupleCode = user?.couple?.code;
+
+  // Verificar se já gerou devocional hoje
+  const hasGeneratedToday = (() => {
+    if (!user?.couple?.lastGeneratedAt) return false;
+    return isSameLocalizedDay(new Date(user.couple.lastGeneratedAt), new Date());
+  })();
 
   const { data: progress, mutate: mutateProgress } = useSWR<WeeklyProgress>(
     userId && user?.coupleId ? `/api/weekly-progress/${userId}` : null,
@@ -253,7 +274,7 @@ export default function Home() {
       const content = await generateDevotionalContent(scriptureInput);
 
       const newSessionPayload = {
-        scriptureReference: scriptureInput,
+        scriptureReference: content.scriptureReference, // Usar referência validada pela IA
         theme: content.theme,
         status: 'IN_PROGRESS',
         culturalContext: content.culturalContext,
@@ -281,6 +302,13 @@ export default function Home() {
         return;
       }
 
+      if (sessionRes.status === 429) {
+        const errorData = await sessionRes.json();
+        alert(errorData?.message || 'Você já gerou um devocional hoje. Tente novamente amanhã.');
+        mutateUser(); // Atualiza dados do usuário para refletir lastGeneratedAt
+        return;
+      }
+
       if (sessionRes.ok) {
         const createdSession: SessionWithRelations = await sessionRes.json();
         setSessionData(createdSession);
@@ -288,8 +316,11 @@ export default function Home() {
         setActiveTab('context');
         setScriptureInput('');
         mutateCurrentSession();
+        mutateUser(); // Atualiza dados do usuário para refletir lastGeneratedAt
       } else {
-        console.error('Failed to create session:', sessionRes.statusText);
+        const errorData = await sessionRes.json().catch(() => ({}));
+        console.error('Failed to create session:', errorData?.message || sessionRes.statusText);
+        alert(errorData?.message || 'Erro ao criar devocional. Tente novamente.');
       }
     } catch (error) {
       console.error('Error starting devotional:', error);
@@ -371,7 +402,7 @@ export default function Home() {
     const sessionToResume = activeSession ?? currentSession;
     if (!sessionToResume) return;
     setSessionData(sessionToResume);
-    setScriptureInput(sessionToResume.scriptureReference);
+    setScriptureInput(sessionToResume.template.scriptureReference);
     setActiveTab('context');
     setMyNote('');
   };
@@ -559,7 +590,7 @@ export default function Home() {
                   <div>
                     <h2 className="font-serif text-xl font-semibold text-slate-800">Devocional em andamento</h2>
                     <p className="text-slate-500 text-sm">
-                      Você começou "{activeSession.scriptureReference}" e pode retomar quando quiser.
+                      Você começou "{activeSession.template.scriptureReference}" e pode retomar quando quiser.
                     </p>
                   </div>
                   <span
@@ -625,9 +656,10 @@ export default function Home() {
                      </button>
                    </div>
 
+                 
                   <button
                     onClick={handleStartDevotional}
-                    disabled={isGeneratingDevotional || !scriptureInput || !!activeSession}
+                    disabled={isGeneratingDevotional || !scriptureInput || !!activeSession || hasGeneratedToday}
                     className="w-full bg-love-600 hover:bg-love-700 disabled:bg-love-300 disabled:cursor-not-allowed text-white font-semibold py-4 rounded-xl shadow-lg shadow-love-200/50 transition-all flex items-center justify-center gap-2 group"
                   >
                     {isGeneratingDevotional ? (
@@ -637,6 +669,8 @@ export default function Home() {
                       </>
                     ) : activeSession ? (
                       <>Já existe um devocional em andamento</>
+                    ) : hasGeneratedToday ? (
+                      <>Você já gerou um devocional hoje</>
                     ) : (
                       <>
                         Iniciar Estudo <ChevronDown className="group-hover:translate-y-1 transition-transform" />
@@ -664,10 +698,10 @@ export default function Home() {
                       className="flex-1 flex justify-between items-center"
                     >
                       <div>
-                        <h3 className="font-bold text-slate-800">{session.scriptureReference}</h3>
+                        <h3 className="font-bold text-slate-800">{session.template.scriptureReference}</h3>
                         <p className="text-xs text-slate-500">{new Date(session.date).toLocaleDateString()}</p>
                         <span className="inline-block px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold tracking-wider mt-1">
-                          {session.theme.toUpperCase()}
+                          {session.template.theme.toUpperCase()}
                         </span>
                       </div>
                       <div className="text-right flex flex-col items-end gap-1">
@@ -743,19 +777,19 @@ export default function Home() {
             {/* Scripture Header */}
             <section className="text-center py-6">
                <span className="inline-block px-3 py-1 bg-love-100 text-love-700 rounded-full text-xs font-bold tracking-wider mb-2">
-                 {sessionData.theme.toUpperCase()}
+                 {sessionData.template.theme.toUpperCase()}
                </span>
-               <h2 className="font-serif text-4xl font-bold text-slate-800 mb-2">{sessionData.scriptureReference}</h2>
+               <h2 className="font-serif text-4xl font-bold text-slate-800 mb-2">{sessionData.template.scriptureReference}</h2>
             </section>
 
-            {sessionData.scriptureText && (
+            {sessionData.template.scriptureText && (
               <section className="bg-white rounded-2xl border border-rose-100 shadow-sm p-6">
                 <div className="flex items-center gap-2 mb-3">
                   <BookOpen className="text-love-500" size={18} />
                   <span className="text-xs font-semibold uppercase tracking-widest text-love-500">Leitura bíblica (ARA)</span>
                 </div>
                 <p className="text-slate-700 leading-relaxed whitespace-pre-wrap text-sm sm:text-base">
-                  {sessionData.scriptureText}
+                  {sessionData.template.scriptureText}
                 </p>
               </section>
             )}
@@ -790,14 +824,14 @@ export default function Home() {
                         <div className="w-1 bg-love-300 rounded-full flex-shrink-0"></div>
                         <div>
                           <h4 className="font-serif text-lg font-bold text-slate-800 mb-1">Cultural</h4>
-                          <p className="text-slate-600 leading-relaxed text-sm sm:text-base">{sessionData.culturalContext}</p>
+                          <p className="text-slate-600 leading-relaxed text-sm sm:text-base">{sessionData.template.culturalContext}</p>
                         </div>
                       </div>
                       <div className="flex gap-4">
                         <div className="w-1 bg-slate-300 rounded-full flex-shrink-0"></div>
                         <div>
                           <h4 className="font-serif text-lg font-bold text-slate-800 mb-1">Literário</h4>
-                          <p className="text-slate-600 leading-relaxed text-sm sm:text-base">{sessionData.literaryContext}</p>
+                          <p className="text-slate-600 leading-relaxed text-sm sm:text-base">{sessionData.template.literaryContext}</p>
                         </div>
                       </div>
                    </div>
@@ -807,12 +841,12 @@ export default function Home() {
                        <div className="w-12 h-12 bg-gold-400/20 text-gold-600 rounded-full flex items-center justify-center mb-4">
                          <Sparkles />
                        </div>
-                       <p className="text-lg font-serif italic text-slate-700 max-w-lg">"{sessionData.christConnection}"</p>
+                       <p className="text-lg font-serif italic text-slate-700 max-w-lg">"{sessionData.template.christConnection}"</p>
                     </div>
                  )}
-                 {activeTab === 'application' && sessionData.applicationQuestions && (
+                 {activeTab === 'application' && sessionData.template.applicationQuestions && (
                     <ul className="space-y-4 animate-fade-in">
-                      {JSON.parse(sessionData.applicationQuestions as string).map((q: string, i: number) => (
+                      {JSON.parse(sessionData.template.applicationQuestions as string).map((q: string, i: number) => (
                         <li key={i} className="flex gap-3 bg-rose-50/50 p-3 rounded-lg">
                            <span className="flex-shrink-0 w-6 h-6 bg-love-200 text-love-800 rounded-full flex items-center justify-center font-bold text-xs mt-0.5">{i+1}</span>
                            <p className="text-slate-700 font-medium">{q}</p>

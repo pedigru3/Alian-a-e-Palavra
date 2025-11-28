@@ -36,6 +36,7 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
   const devotionalSession = await prisma.devotionalSession.findUnique({
     where: { id: params.sessionId },
     include: {
+      template: true,
       couple: { include: { users: true } },
       userProgress: { include: { user: true } },
       notes: { include: { user: true } },
@@ -71,8 +72,8 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
 
   const questions: string[] = (() => {
     try {
-      return devotionalSession.applicationQuestions
-        ? JSON.parse(devotionalSession.applicationQuestions as string)
+      return devotionalSession.template.applicationQuestions
+        ? JSON.parse(devotionalSession.template.applicationQuestions as string)
         : [];
     } catch {
       return [];
@@ -141,7 +142,7 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
             <p className="text-xs uppercase tracking-[0.3em] text-love-400 font-semibold mb-2">
               {statusStyles.heading}
             </p>
-            <h1 className="font-serif text-4xl text-love-900">{devotionalSession.scriptureReference}</h1>
+            <h1 className="font-serif text-4xl text-love-900">{devotionalSession.template.scriptureReference}</h1>
             <p className="text-sm text-slate-500">{formatDate}</p>
           </div>
           <div className="flex items-center gap-3">
@@ -158,7 +159,7 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
         <div className="bg-white rounded-3xl shadow-lg border border-rose-100 p-6 grid gap-6 md:grid-cols-2">
           <div>
             <p className="text-xs font-semibold text-love-500 uppercase tracking-widest mb-2">Tema</p>
-            <p className="font-serif text-2xl text-slate-900">{devotionalSession.theme}</p>
+            <p className="font-serif text-2xl text-slate-900">{devotionalSession.template.theme}</p>
           </div>
           <div>
             <p className="text-xs font-semibold text-love-500 uppercase tracking-widest mb-2">Status</p>
@@ -173,24 +174,24 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
         <div className="grid gap-4 md:grid-cols-2">
           <div className="bg-white rounded-2xl p-5 border border-slate-100">
             <h2 className="text-sm font-semibold text-love-500 uppercase tracking-widest mb-2">Contexto Cultural</h2>
-            <p className="text-slate-700 leading-relaxed">{devotionalSession.culturalContext}</p>
+            <p className="text-slate-700 leading-relaxed">{devotionalSession.template.culturalContext}</p>
           </div>
           <div className="bg-white rounded-2xl p-5 border border-slate-100">
             <h2 className="text-sm font-semibold text-love-500 uppercase tracking-widest mb-2">Contexto Literário</h2>
-            <p className="text-slate-700 leading-relaxed">{devotionalSession.literaryContext}</p>
+            <p className="text-slate-700 leading-relaxed">{devotionalSession.template.literaryContext}</p>
           </div>
         </div>
 
-        {devotionalSession.scriptureText && (
+        {devotionalSession.template.scriptureText && (
           <div className="bg-white rounded-3xl shadow-lg border border-rose-100 p-6">
             <p className="text-xs font-semibold text-love-500 uppercase tracking-[0.3em] mb-3">Leitura bíblica (ARA)</p>
-            <p className="text-slate-700 whitespace-pre-wrap leading-relaxed">{devotionalSession.scriptureText}</p>
+            <p className="text-slate-700 whitespace-pre-wrap leading-relaxed">{devotionalSession.template.scriptureText}</p>
           </div>
         )}
 
         <div className="bg-white rounded-2xl p-6 border border-rose-100">
           <h2 className="text-sm font-semibold text-love-500 uppercase tracking-widest mb-2">Cristo nas Escrituras</h2>
-          <p className="text-lg font-serif italic text-slate-800">"{devotionalSession.christConnection}"</p>
+          <p className="text-lg font-serif italic text-slate-800">"{devotionalSession.template.christConnection}"</p>
         </div>
 
         {questions.length > 0 && (

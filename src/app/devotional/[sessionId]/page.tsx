@@ -25,13 +25,13 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
   const session = await getServerSession(authOptions);
 
   if (!session?.user?.email) {
-    redirect('/');
+    redirect('/app');
   }
 
   const currentUser = await fetchCurrentUser(session.user.email);
 
   if (!currentUser) {
-    redirect('/');
+    redirect('/app');
   }
 
   const devotionalSession = await prisma.devotionalSession.findUnique({

@@ -21,7 +21,7 @@ export const DeleteDevotionalButton = ({ sessionId }: DeleteDevotionalButtonProp
       });
 
       if (res.ok) {
-        router.push('/');
+        router.push('/app');
         router.refresh();
       } else {
         const error = await res.json();

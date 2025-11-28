@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
-import { Link, QrCode, Clipboard, Check, Loader2, Users, HeartCrack } from 'lucide-react';
+import { signOut, useSession } from 'next-auth/react';
+import { Link, QrCode, Clipboard, Check, Loader2, Users, HeartCrack, LogOut } from 'lucide-react';
 
 interface CoupleConnectProps {
   onCoupleConnected: () => void;
@@ -171,14 +171,15 @@ export function CoupleConnect({ onCoupleConnected, userName, userCoupleId }: Cou
             </button>
           </div>
         </div>
-
-        {/* Not now option */}
+      <div className="flex justify-center mt-6">
         <button
-          onClick={onCoupleConnected} // Allow skipping for now, main app will check coupleId and act accordingly
-          className="w-full mt-4 text-sm text-slate-500 hover:underline flex items-center justify-center gap-1"
+          onClick={() => signOut({ callbackUrl: '/' })}
+          className="flex items-center gap-2 px-5 py-2 bg-white border border-slate-300 rounded-full text-slate-600 hover:border-red-300 hover:text-red-600 hover:bg-red-50 transition-colors font-semibold text-sm"
         >
-          <HeartCrack size={16} /> Fazer isso depois (Entrar sozinho)
+          <LogOut size={16} />
+          Sair
         </button>
+      </div>
 
       </div>
     </div>

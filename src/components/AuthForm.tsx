@@ -30,7 +30,7 @@ export function AuthForm() {
       if (result?.error) {
         setError('Falha no login: Verifique seu email e senha.');
       } else {
-        router.push('/');
+        router.push('/app');
       }
     } else {
       // Handle Registration
@@ -54,7 +54,7 @@ export function AuthForm() {
           if (loginResult?.error) {
             setError('Cadastro realizado com sucesso, mas falha no login automático.');
           } else {
-            router.push('/');
+            router.push('/app');
           }
         } else {
           const errorData = await res.json();

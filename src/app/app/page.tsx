@@ -17,6 +17,7 @@ import {
   Loader2,
   History,
   Trash2,
+  ShieldCheck,
 } from 'lucide-react';
 import { generateDevotionalContent, suggestScripture } from '@/services/geminiService';
 import {
@@ -868,7 +869,14 @@ export default function Home() {
             </section>
 
             {/* Split Screen Notes */}
-            <section className="grid md:grid-cols-2 gap-6">
+            <section className="space-y-3">
+               {/* Security indicator */}
+               <div className="flex items-center justify-center gap-2 text-xs text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-full px-4 py-2 mx-auto w-fit">
+                  <ShieldCheck size={14} />
+                  <span className="font-medium">Suas anotações são criptografadas e privadas do casal</span>
+               </div>
+
+               <div className="grid md:grid-cols-2 gap-6">
                {/* My Notes */}
                <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex flex-col h-80 focus-within:ring-2 focus-within:ring-love-200 transition-shadow">
                   <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-100">
@@ -899,6 +907,7 @@ export default function Home() {
                       </div>
                     )}
                   </div>
+               </div>
                </div>
             </section>
 

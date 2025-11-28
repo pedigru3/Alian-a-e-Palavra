@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { v4 as uuidv4 } from 'uuid'; // For generating unique codes
+import { generateCoupleEncryptionKey } from '@/lib/encryption';
 
 export async function POST(request: Request) {
   try {
@@ -42,9 +42,13 @@ export async function POST(request: Request) {
       }
     }
 
+    // Gera chave de criptografia única para o casal
+    const encryptionKey = generateCoupleEncryptionKey();
+
     const newCouple = await prisma.couple.create({
       data: {
         code: uniqueCode,
+        encryptionKey,
         users: {
           connect: { id: user.id } // Connect the current user as the first user
         }

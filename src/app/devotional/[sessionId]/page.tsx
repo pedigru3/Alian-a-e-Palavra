@@ -5,13 +5,15 @@ import { redirect, notFound } from 'next/navigation';
 import Link from 'next/link';
 import { DeleteDevotionalButton } from '@/components/DeleteDevotionalButton';
 import { getAppTimeZone } from '@/lib/timezone';
+import { decryptNote, ensureCoupleEncryptionKey } from '@/lib/encryption';
+import { ShieldCheck } from 'lucide-react';
 
 interface DevotionalReviewPageProps {
   params: { sessionId: string };
 }
 
 async function fetchCurrentUser(email: string) {
-  return prisma.user.findUnique({
+  const user = await prisma.user.findUnique({
     where: { email },
     include: {
       couple: {
@@ -19,6 +21,17 @@ async function fetchCurrentUser(email: string) {
       },
     },
   });
+  
+  return user;
+}
+
+async function getCoupleEncryptionKey(coupleId: string): Promise<string | null> {
+  // Busca diretamente do banco para garantir que pegamos o campo encryptionKey
+  // mesmo que o Prisma Client ainda não tenha sido regenerado
+  const result = await prisma.$queryRaw<{ encryptionKey: string | null }[]>`
+    SELECT "encryptionKey" FROM "Couple" WHERE id = ${coupleId}
+  `;
+  return result[0]?.encryptionKey ?? null;
 }
 
 export default async function DevotionalReviewPage({ params }: DevotionalReviewPageProps) {
@@ -62,12 +75,24 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
       ? devotionalSession.userProgress.find((progress) => progress.userId === partner.id) ?? null
       : null;
 
+  // Garante que o casal tenha uma chave de criptografia (gera se não existir)
+  const coupleId = currentUser.couple?.id;
+  const existingKey = coupleId ? await getCoupleEncryptionKey(coupleId) : null;
+  const encryptionKey = coupleId
+    ? await ensureCoupleEncryptionKey(coupleId, existingKey)
+    : null;
+
+  // Descriptografa as notas antes de exibir
   const notes = devotionalSession.notes
     .slice()
     .sort(
       (a, b) =>
         new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    );
+    )
+    .map((note) => ({
+      ...note,
+      content: encryptionKey && note.content ? decryptNote(note.content, encryptionKey) : note.content,
+    }));
 
   const participants = coupleUsers;
 
@@ -151,7 +176,7 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
           <div className="flex items-center gap-3">
             <DeleteDevotionalButton sessionId={devotionalSession.id} />
             <Link
-              href="/"
+              href="/app"
               className="text-love-600 text-sm font-semibold hover:underline"
             >
               ← Voltar para o painel
@@ -207,6 +232,12 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
             </ol>
           </div>
         )}
+
+        {/* Security indicator */}
+        <div className="flex items-center justify-center gap-2 text-xs text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-full px-4 py-2 mx-auto w-fit">
+          <ShieldCheck size={14} />
+          <span className="font-medium">Anotações criptografadas e privadas do casal</span>
+        </div>
 
         <div className="grid gap-4 md:grid-cols-2">
           {participants.map((participant) => {

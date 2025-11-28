@@ -31,6 +31,7 @@ model User {
 model Couple {
   id              String    @id @default(cuid())
   code            String    @unique // New field for the unique couple code
+  encryptionKey   String?   // Chave de criptografia do casal (criptografada com chave mestra)
   level           Int       @default(1)
   xp              Int       @default(0)
   lastGeneratedAt DateTime? @db.Timestamptz(6) // Última vez que gerou um devocional

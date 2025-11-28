@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { redirect, notFound } from 'next/navigation';
 import Link from 'next/link';
 import { DeleteDevotionalButton } from '@/components/DeleteDevotionalButton';
+import { getAppTimeZone } from '@/lib/timezone';
 
 interface DevotionalReviewPageProps {
   params: { sessionId: string };
@@ -80,10 +81,12 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
     }
   })();
 
-  const formatDate = new Date(devotionalSession.date).toLocaleString('pt-BR', {
+  const appTimeZone = getAppTimeZone();
+  const formatDate = new Intl.DateTimeFormat('pt-BR', {
     dateStyle: 'full',
     timeStyle: 'short',
-  });
+    timeZone: appTimeZone,
+  }).format(new Date(devotionalSession.date));
 
   const waitingLabel = (() => {
     if (!partnerFirstName) {
@@ -222,10 +225,11 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
                     <p className="text-xs uppercase tracking-widest text-love-500 font-semibold">{participant.name}</p>
                     {participantNote && (
                       <p className="text-[11px] text-slate-400">
-                        {new Date(participantNote.createdAt).toLocaleString('pt-BR', {
+                        {new Intl.DateTimeFormat('pt-BR', {
                           dateStyle: 'short',
                           timeStyle: 'short',
-                        })}
+                          timeZone: appTimeZone,
+                        }).format(new Date(participantNote.createdAt))}
                       </p>
                     )}
                   </div>

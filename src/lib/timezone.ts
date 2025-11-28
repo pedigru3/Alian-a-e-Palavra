@@ -1,5 +1,20 @@
 const MS_PER_MINUTE = 60_000;
+const DEFAULT_TIMEZONE = 'America/Sao_Paulo';
 const DEFAULT_TIMEZONE_OFFSET_MINUTES = -180; // America/Sao_Paulo (UTC-03:00)
+
+function resolveConfiguredTimeZone(): string {
+  return (
+    process.env.NEXT_PUBLIC_APP_TIMEZONE ??
+    process.env.APP_TIMEZONE ??
+    DEFAULT_TIMEZONE
+  );
+}
+
+const CONFIGURED_TIMEZONE = resolveConfiguredTimeZone();
+
+export function getAppTimeZone(): string {
+  return CONFIGURED_TIMEZONE;
+}
 
 function resolveConfiguredOffset(): number {
   const rawOffset =

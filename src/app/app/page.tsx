@@ -19,7 +19,7 @@ import {
   Trash2,
   ShieldCheck,
 } from 'lucide-react';
-import { generateDevotionalContent, suggestScripture } from '@/services/geminiService';
+import { generateDevotionalContent, generateDevotionalContentPremium, suggestScripture } from '@/services/geminiService';
 import {
   User,
   DevotionalSession,
@@ -72,6 +72,9 @@ type SessionWithTemplate = DevotionalSession & {
     christConnection: string;
     applicationQuestions: string;
     scriptureText: string | null;
+    centralTruth: string | null;
+    keyGreekHebrewTerms: string | null;
+    comments: string | null;
     isAiGenerated: boolean;
   };
 };
@@ -166,6 +169,22 @@ export default function Home() {
     fetcher,
     { refreshInterval: 5000 } // Poll every 5 seconds to check for partner's new session
   );
+
+  // Buscar subscriptions do usuário para verificar se é premium
+  const { data: subscriptions } = useSWR(
+    userId ? '/api/subscriptions' : null,
+    fetcher
+  );
+
+  // Verificar se o usuário tem subscription ativa (premium)
+  const isPremium = useMemo(() => {
+    if (!subscriptions || !Array.isArray(subscriptions)) return false;
+    const now = new Date();
+    return subscriptions.some((sub: { expiresAt: string }) => {
+      const expiresAt = new Date(sub.expiresAt);
+      return expiresAt > now;
+    });
+  }, [subscriptions]);
 
   const activeSession = currentSession && currentSession.status !== 'COMPLETED' ? currentSession : null;
   const historyWithActive = useMemo<SessionWithProgress[]>(() => {
@@ -297,9 +316,12 @@ export default function Home() {
     setIsGeneratingDevotional(true);
 
     try {
-      const content = await generateDevotionalContent(scriptureInput);
+      // Verificar se é premium e usar a função apropriada
+      const content = isPremium 
+        ? await generateDevotionalContentPremium(scriptureInput)
+        : await generateDevotionalContent(scriptureInput);
 
-      const newSessionPayload = {
+      const newSessionPayload: any = {
         scriptureReference: content.scriptureReference, // Usar referência validada pela IA
         theme: content.theme,
         status: 'IN_PROGRESS',
@@ -310,6 +332,13 @@ export default function Home() {
         userId: user.id,
         coupleId: user.coupleId
       };
+
+      // Adicionar campos premium se for premium
+      if (isPremium && 'centralTruth' in content && 'keyGreekHebrewTerms' in content && 'comments' in content) {
+        newSessionPayload.centralTruth = content.centralTruth;
+        newSessionPayload.keyGreekHebrewTerms = content.keyGreekHebrewTerms;
+        newSessionPayload.comments = content.comments;
+      }
 
       const sessionRes = await fetch(`/api/sessions`, {
         method: 'POST',

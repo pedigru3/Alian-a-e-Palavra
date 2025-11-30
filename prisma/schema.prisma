@@ -53,6 +53,9 @@ model DevotionalTemplate {
   christConnection     String
   applicationQuestions String
   scriptureText        String?
+  centralTruth         String?  // A principal lição teológica/espiritual do texto
+  keyGreekHebrewTerms  String?  // Termos chave no idioma original e seu significado
+  comments             String?  // O que os comentaristas geralmente explicam sobre o texto
   isAiGenerated        Boolean  @default(true)
   sessions             DevotionalSession[]
 

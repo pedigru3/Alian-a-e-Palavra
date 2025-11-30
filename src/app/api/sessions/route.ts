@@ -15,6 +15,9 @@ export async function POST(request: Request) {
       literaryContext,
       christConnection,
       applicationQuestions,
+      centralTruth,
+      keyGreekHebrewTerms,
+      comments,
       userId,
     } = body;
 
@@ -120,9 +123,24 @@ export async function POST(request: Request) {
           christConnection,
           applicationQuestions,
           scriptureText: scriptureText ?? null,
+          centralTruth: centralTruth ?? null,
+          keyGreekHebrewTerms: keyGreekHebrewTerms ?? null,
+          comments: comments ?? null,
           isAiGenerated: true,
         },
       });
+    } else {
+      // Se o template já existe mas não tem os campos premium e foram fornecidos, atualiza
+      if ((centralTruth || keyGreekHebrewTerms || comments) && (!template.centralTruth || !template.keyGreekHebrewTerms || !template.comments)) {
+        template = await prisma.devotionalTemplate.update({
+          where: { id: template.id },
+          data: {
+            ...(centralTruth && !template.centralTruth && { centralTruth }),
+            ...(keyGreekHebrewTerms && !template.keyGreekHebrewTerms && { keyGreekHebrewTerms }),
+            ...(comments && !template.comments && { comments }),
+          },
+        });
+      }
     }
 
     // Create session linked to template

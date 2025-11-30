@@ -16,6 +16,7 @@ model User {
   email         String    @unique
   password      String
   avatarUrl     String?
+  isSubscription Boolean  @default(false)
   
   coupleId      String?
   couple        Couple?   @relation(fields: [coupleId], references: [id])
@@ -23,6 +24,7 @@ model User {
   notes         Note[]
   initiatedSessions DevotionalSession[] @relation("InitiatedSessions")
   sessionProgress   DevotionalSessionUserProgress[]
+  subscriptions Subscription[]
 
   createdAt     DateTime @default(now()) @db.Timestamptz(6)
   updatedAt     DateTime @updatedAt @db.Timestamptz(6)
@@ -118,4 +120,18 @@ model DevotionalSessionUserProgress {
   @@unique([sessionId, userId])
   @@index([sessionId])
   @@index([userId])
+}
+
+model Subscription {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startDate   DateTime @db.Timestamptz(6)
+  expiresAt   DateTime @db.Timestamptz(6)
+
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([userId])
+  @@index([expiresAt])
 }

@@ -1,9 +1,9 @@
 // src/app/api/users/route.ts
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
-
-const prisma = new PrismaClient();
+import { v4 as uuidv4 } from 'uuid';
+import { sendVerificationEmail } from '@/lib/mail';
 
 export async function POST(request: Request) {
   try {
@@ -23,14 +23,25 @@ export async function POST(request: Request) {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
+    const verificationToken = uuidv4();
 
     const newUser = await prisma.user.create({
       data: {
         name,
         email,
         password: hashedPassword,
+        verificationToken,
       },
     });
+
+    // Send verification email
+    try {
+      await sendVerificationEmail(email, verificationToken);
+    } catch (e) {
+      console.error('Failed to send verification email:', e);
+      // We don't fail the registration if email fails, but maybe we should?
+      // For now, just log the error. The user can request another one later (to be implemented).
+    }
 
     return NextResponse.json(newUser, { status: 201 });
   } catch (error) {
@@ -48,6 +59,13 @@ export async function GET(request: Request) {
       try {
         const user = await prisma.user.findUnique({
           where: { email: email as string },
+          include: {
+            couple: {
+              include: {
+                users: true,
+              },
+            },
+          },
         });
         if (user) {
           return NextResponse.json(user);

@@ -10,6 +10,12 @@ export interface GeminiResponse {
   questions: string[];
 }
 
+export interface GeminiPremiumResponse extends GeminiResponse {
+  centralTruth: string; // A principal lição teológica/espiritual do texto
+  keyGreekHebrewTerms: string; // Termos chave no idioma original e seu significado
+  comments: string; // O que os comentaristas geralmente explicam sobre o texto
+}
+
 // Ensure API key is present
 // In Next.js, environment variables are exposed via process.env
 const apiKey = process.env.GEMINI_API_KEY
@@ -20,7 +26,85 @@ if (!apiKey) {
 
 const ai = new GoogleGenAI({ apiKey: apiKey || 'dummy-key' });
 
-export const generateDevotionalContent = async (scripture: string): Promise<GeminiResponse> => {
+export interface DevotionalPlanResponse {
+  title: string;
+  days: {
+    day: number;
+    title: string;
+    theme: string;
+    scripture: string;
+  }[];
+}
+
+export const generateDevotionalPlan = async (description: string, duration: number): Promise<DevotionalPlanResponse> => {
+  const modelId = "gemini-2.5-flash";
+
+  const schema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+      title: { type: Type.STRING, description: "A catchy and inspiring title for the entire devotional plan." },
+      days: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            day: { type: Type.INTEGER },
+            title: { type: Type.STRING, description: "A specific title for this day's study." },
+            theme: { type: Type.STRING, description: "The theological theme or topic for the day." },
+            scripture: { type: Type.STRING, description: "The key scripture reference for the day." }
+          },
+          required: ["day", "title", "theme", "scripture"]
+        }
+      }
+    },
+    required: ["title", "days"]
+  };
+
+  const prompt = `
+    Atue como um conselheiro cristão sábio.
+    Crie um plano de devocional de ${duration} dias para um casal com a seguinte descrição/objetivo: "${description}".
+
+    Para cada dia, forneça:
+    - Um número do dia (1 a ${duration})
+    - Um título específico e inspirador para o dia
+    - Um tema teológico central
+    - Uma referência bíblica chave que suporte o tema
+
+    Também forneça um título criativo para o plano inteiro.
+    Responda em PORTUGUÊS (Brasil).
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: modelId,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: schema,
+        temperature: 0.7,
+      },
+    });
+
+    const text = response.text;
+    if (!text) throw new Error("No plan generated");
+    
+    return JSON.parse(text) as DevotionalPlanResponse;
+  } catch (error) {
+    console.error("Gemini API Error (Plan):", error);
+    // Fallback simple plan
+    return {
+      title: "Plano de Exemplo (Fallback)",
+      days: Array.from({ length: duration }, (_, i) => ({
+        day: i + 1,
+        title: `Dia ${i + 1}: Amor`,
+        theme: "Amor",
+        scripture: "1 Coríntios 13:4-7"
+      }))
+    };
+  }
+};
+
+export const generateDevotionalContent = async (scripture: string, theme?: string): Promise<GeminiResponse> => {
   const modelId = "gemini-2.5-flash";
 
   const schema: Schema = {
@@ -43,10 +127,13 @@ export const generateDevotionalContent = async (scripture: string): Promise<Gemi
     required: ["scriptureReference", "theme", "culturalContext", "literaryContext", "christConnection", "questions"]
   };
 
+  const themeInstruction = theme ? `O tema central deste estudo deve ser: "${theme}".` : "";
+
   const prompt = `
     Atue como um conselheiro cristão sábio e experiente em casamentos.
     
     O usuário digitou: "${scripture}"
+    ${themeInstruction}
     
     PRIMEIRO, identifique se isso é uma referência bíblica válida:
     - Se for uma referência válida (ex: "1 cor 13", "salmo 23", "genesis 2:24"), normalize para o formato padrão brasileiro (ex: "1 Coríntios 13", "Salmos 23", "Gênesis 2:24")
@@ -405,6 +492,128 @@ const POPULAR_SCRIPTURES = [
   "Apocalipse 3:20",       // Eis que estou à porta
   "Apocalipse 21:1-4"      // Novo céu e nova terra
 ];
+
+export const generateDevotionalContentPremium = async (scripture: string, theme?: string): Promise<GeminiPremiumResponse> => {
+  const modelId = "gemini-2.5-pro";
+
+  const schema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+      scriptureReference: { 
+        type: Type.STRING, 
+        description: "A referência bíblica EXATA e VÁLIDA no formato padrão brasileiro (ex: '1 Coríntios 13:4-7', 'Salmos 23', 'Gênesis 2:24'). DEVE ser um livro, capítulo e opcionalmente versículo(s) da Bíblia." 
+      },
+      theme: { 
+        type: Type.STRING, 
+        description: "Um título curto de 2-3 palavras para o tema do devocional." 
+      },
+      culturalContext: { 
+        type: Type.STRING, 
+        description: "Contexto histórico e cultural da passagem, incluindo informações sobre a época, costumes, práticas sociais e situações que os leitores originais enfrentavam." 
+      },
+      literaryContext: { 
+        type: Type.STRING, 
+        description: "Onde esta passagem se encaixa no livro/capítulo e seu estilo literário (narrativa, poesia, carta, profecia, etc.)." 
+      },
+      christConnection: { 
+        type: Type.STRING, 
+        description: "Como esta passagem aponta para Jesus Cristo ou o Evangelho. Inclua conexões cristológicas e teológicas profundas." 
+      },
+      questions: {
+        type: Type.ARRAY,
+        items: { type: Type.STRING },
+        description: "3 questões específicas e profundas para casais discutirem sobre esta passagem."
+      },
+      centralTruth: {
+        type: Type.STRING,
+        description: "A principal lição teológica/espiritual do texto. Deve ser uma verdade central extraída do texto que seja aplicável ao relacionamento do casal. Seja específico e teologicamente preciso."
+      },
+      keyGreekHebrewTerms: {
+        type: Type.STRING,
+        description: "Termos chave no idioma original (grego ou hebraico) e seu significado. Inclua a transliteração, o termo original quando relevante, e uma explicação do significado que enriquece a compreensão do texto. Foque em termos que têm significado teológico ou prático importante para casais."
+      },
+      comments: {
+        type: Type.STRING,
+        description: "O que os comentaristas bíblicos geralmente explicam sobre este texto. Inclua insights de estudiosos respeitados, interpretações históricas, e perspectivas teológicas que aprofundam a compreensão da passagem. Seja acadêmico mas acessível."
+      }
+    },
+    required: [
+      "scriptureReference", 
+      "theme", 
+      "culturalContext", 
+      "literaryContext", 
+      "christConnection", 
+      "questions",
+      "centralTruth",
+      "keyGreekHebrewTerms",
+      "comments"
+    ]
+  };
+
+    const themeInstruction = theme ? `O tema central deste estudo deve ser: "${theme}".` : "";
+
+  const prompt = `
+    Atue como um erudito bíblico cristão, especialista em estudos teológicos e exegéticos, com profundo conhecimento de grego e hebraico, e experiência em aconselhamento de casais.
+    
+    O usuário digitou: "${scripture}"
+    ${themeInstruction}
+    
+    PRIMEIRO, identifique se isso é uma referência bíblica válida:
+    - Se for uma referência válida (ex: "1 cor 13", "salmo 23", "genesis 2:24"), normalize para o formato padrão brasileiro (ex: "1 Coríntios 13", "Salmos 23", "Gênesis 2:24")
+    - Se NÃO for uma referência válida (ex: "alegria", "amor", "paciência"), encontre uma passagem bíblica relevante para casais sobre esse tema
+    
+    Depois, crie um estudo devocional PREMIUM, extenso e profundamente teológico para um casal baseado nessa passagem.
+    
+    Este é um devocional PREMIUM, então deve incluir:
+    1. Análise teológica profunda com a verdade central extraída do texto
+    2. Termos chave em grego/hebraico com suas transliterações e significados que enriquecem a compreensão
+    3. Insights de comentaristas bíblicos respeitados e perspectivas históricas
+    
+    O tom deve ser:
+    - Erudito mas acessível
+    - Teologicamente profundo e preciso
+    - Aplicável à vida a dois
+    - Encorajador e edificante
+    
+    Foque em como este texto se aplica profundamente à vida conjugal, mas mantenha a integridade exegética e teológica.
+    Responda em PORTUGUÊS (Brasil).
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: modelId,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: schema,
+        temperature: 0.8, // Temperatura um pouco mais alta para respostas mais criativas e profundas
+      },
+    });
+
+    const text = response.text;
+    if (!text) throw new Error("No content generated");
+    
+    return JSON.parse(text) as GeminiPremiumResponse;
+  } catch (error) {
+    console.error("Gemini API Error (Premium):", error);
+    // Fallback para demonstração se a API falhar ou exceder a cota
+    return {
+      scriptureReference: "1 Coríntios 13:4-7",
+      theme: "O Amor é Paciente (Fallback Premium)",
+      culturalContext: "Paulo escrevia aos Coríntios em uma época onde o amor era frequentemente visto como transacional ou puramente erótico. O conceito de ágape era revolucionário. Na cultura greco-romana, o amor era muitas vezes baseado em reciprocidade e benefício mútuo, mas Paulo apresenta um amor que é incondicional e sacrificial.",
+      literaryContext: "Inserido no meio de instruções sobre dons espirituais (capítulos 12-14), este capítulo funciona como o alicerce necessário para qualquer serviço cristão. É um poema sobre o amor que contrasta com os dons espirituais, mostrando que sem amor, mesmo os maiores dons são vazios.",
+      christConnection: "Jesus é a personificação perfeita deste amor. Ele foi paciente, benigno e tudo sofreu por nós na cruz. O amor ágape descrito aqui encontra sua expressão máxima na encarnação, vida, morte e ressurreição de Cristo. Este amor não é apenas um ideal, mas uma realidade encarnada em Jesus.",
+      questions: [
+        "Em qual aspecto da descrição do amor você tem mais dificuldade hoje?",
+        "Como a paciência de Cristo com você inspira sua paciência com seu cônjuge?",
+        "Qual ação prática podemos tomar essa semana para demonstrar bondade um ao outro?"
+      ],
+      centralTruth: "O amor verdadeiro (ágape) é a essência e o fundamento de toda vida cristã e relacionamento. Sem este amor sacrificial, paciente e incondicional, todas as outras virtudes e dons são vazios. Este amor encontra sua origem e modelo em Deus, e sua expressão máxima em Cristo Jesus.",
+      keyGreekHebrewTerms: "Ágape (ἀγάπη): O termo grego usado aqui para 'amor' não se refere ao amor romântico (eros) ou ao amor fraternal (philia), mas ao amor divino, sacrificial e incondicional. É o amor que escolhe o bem do outro independentemente de sentimentos ou reciprocidade. Paciente (μακροθυμέω): Literalmente 'longo de ânimo', significa ter paciência prolongada, especialmente diante de provocações. Não se trata apenas de esperar, mas de manter a calma e a bondade mesmo quando ferido.",
+      comments: "Comentaristas como John Stott e Gordon Fee destacam que este capítulo não é apenas poético, mas profundamente teológico. Fee observa que Paulo está contrastando os dons espirituais (que os coríntios valorizavam excessivamente) com o amor (que eles negligenciavam). Stott enfatiza que este amor não é um sentimento, mas uma decisão e uma ação. Para casais, isso significa que o amor conjugal deve ser ativo, não apenas reativo. Comentaristas históricos como Matthew Henry também notam que cada atributo do amor descrito aqui é uma escolha diária, não um sentimento passageiro."
+    };
+  }
+};
 
 export const suggestScripture = async (): Promise<string> => {
   // Escolhe aleatoriamente da lista (instantâneo, sem chamada de IA)

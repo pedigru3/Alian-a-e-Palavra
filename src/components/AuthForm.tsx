@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { Lock, UserRoundPlus, LogIn, Mail, KeyRound, ChevronRight, Loader2, Heart } from 'lucide-react';
+import { Lock, UserRoundPlus, LogIn, Mail, KeyRound, ChevronRight, Loader2, Heart, CheckCircle } from 'lucide-react';
 
 export function AuthForm() {
   const [isLogin, setIsLogin] = useState(true);
@@ -28,7 +28,11 @@ export function AuthForm() {
       });
 
       if (result?.error) {
-        setError('Falha no login: Verifique seu email e senha.');
+        if (result.error.includes('EMAIL_NOT_VERIFIED')) {
+          setError('Seu e-mail ainda não foi verificado. Por favor, confira sua caixa de entrada.');
+        } else {
+          setError('Falha no login: Verifique seu email e senha.');
+        }
       } else {
         router.push('/app');
       }
@@ -44,18 +48,12 @@ export function AuthForm() {
         });
 
         if (res.ok) {
-          // After successful registration, log the user in directly
-          const loginResult = await signIn('credentials', {
-            redirect: false,
-            email,
-            password,
-          });
-
-          if (loginResult?.error) {
-            setError('Cadastro realizado com sucesso, mas falha no login automático.');
-          } else {
-            router.push('/app');
-          }
+          setError('success:Cadastro realizado! Verifique seu e-mail para confirmar sua conta.');
+          // Clear inputs after success
+          setName('');
+          setEmail('');
+          setPassword('');
+          setTimeout(() => setIsLogin(true), 5000);
         } else {
           const errorData = await res.json();
           setError(errorData.error || 'Falha no cadastro. Tente novamente.');
@@ -135,7 +133,22 @@ export function AuthForm() {
             </div>
           </div>
 
-          {error && <p className="text-red-500 text-sm text-center">{error}</p>}
+          {error && (
+            <div className={`p-4 rounded-xl text-sm flex items-center gap-2 ${
+              error.startsWith('success:') 
+                ? 'bg-green-50 text-green-700 border border-green-200' 
+                : 'bg-red-50 text-red-600 border border-red-200'
+            }`}>
+              {error.startsWith('success:') ? (
+                <>
+                  <CheckCircle className="flex-shrink-0" size={18} />
+                  <span>{error.replace('success:', '')}</span>
+                </>
+              ) : (
+                <span>{error}</span>
+              )}
+            </div>
+          )}
 
           <button
             type="submit"

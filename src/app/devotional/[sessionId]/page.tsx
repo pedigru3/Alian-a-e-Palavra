@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { DeleteDevotionalButton } from '@/components/DeleteDevotionalButton';
 import { getAppTimeZone } from '@/lib/timezone';
 import { decryptNote, ensureCoupleEncryptionKey } from '@/lib/encryption';
-import { ShieldCheck } from 'lucide-react';
+import { ShieldCheck, Sparkles, BookOpen } from 'lucide-react';
 
 interface DevotionalReviewPageProps {
   params: { sessionId: string };
@@ -167,9 +167,17 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
       <div className="max-w-4xl mx-auto space-y-8">
         <div className="flex justify-between items-center">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-love-400 font-semibold mb-2">
-              {statusStyles.heading}
-            </p>
+            <div className="flex items-center gap-2 mb-2">
+              <p className="text-xs uppercase tracking-[0.3em] text-love-400 font-semibold">
+                {statusStyles.heading}
+              </p>
+              {(devotionalSession.template.centralTruth || devotionalSession.template.keyGreekHebrewTerms || devotionalSession.template.comments) && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gradient-to-r from-amber-400 to-yellow-400 text-white rounded-full text-[10px] font-bold">
+                  <Sparkles size={10} />
+                  PREMIUM
+                </span>
+              )}
+            </div>
             <h1 className="font-serif text-4xl text-love-900">{devotionalSession.template.scriptureReference}</h1>
             <p className="text-sm text-slate-500">{formatDate}</p>
           </div>
@@ -230,6 +238,52 @@ export default async function DevotionalReviewPage({ params }: DevotionalReviewP
                 <li key={`question-${index}`}>{question}</li>
               ))}
             </ol>
+          </div>
+        )}
+
+        {/* Premium Content Section */}
+        {(devotionalSession.template.centralTruth || devotionalSession.template.keyGreekHebrewTerms || devotionalSession.template.comments) && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 mb-4">
+              <Sparkles className="text-amber-500" size={20} />
+              <h2 className="text-lg font-serif font-bold text-amber-900">Conteúdo Premium</h2>
+            </div>
+            
+            {devotionalSession.template.centralTruth && (
+              <div className="bg-gradient-to-br from-amber-50 to-yellow-50 rounded-2xl p-6 border border-amber-200">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-8 h-8 bg-amber-400 rounded-full flex items-center justify-center">
+                    <Sparkles size={16} className="text-white" />
+                  </div>
+                  <h3 className="font-serif text-lg font-bold text-amber-900">Verdade Central</h3>
+                </div>
+                <p className="text-amber-900 leading-relaxed">{devotionalSession.template.centralTruth}</p>
+              </div>
+            )}
+            
+            {devotionalSession.template.keyGreekHebrewTerms && (
+              <div className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-2xl p-6 border border-purple-200">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center">
+                    <BookOpen size={16} className="text-white" />
+                  </div>
+                  <h3 className="font-serif text-lg font-bold text-purple-900">Termos em Grego/Hebraico</h3>
+                </div>
+                <p className="text-purple-900 leading-relaxed whitespace-pre-wrap">{devotionalSession.template.keyGreekHebrewTerms}</p>
+              </div>
+            )}
+            
+            {devotionalSession.template.comments && (
+              <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-2xl p-6 border border-blue-200">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+                    <ShieldCheck size={16} className="text-white" />
+                  </div>
+                  <h3 className="font-serif text-lg font-bold text-blue-900">Comentários dos Eruditos</h3>
+                </div>
+                <p className="text-blue-900 leading-relaxed whitespace-pre-wrap">{devotionalSession.template.comments}</p>
+              </div>
+            )}
           </div>
         )}
 

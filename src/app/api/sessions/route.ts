@@ -15,7 +15,11 @@ export async function POST(request: Request) {
       literaryContext,
       christConnection,
       applicationQuestions,
+      centralTruth,
+      keyGreekHebrewTerms,
+      comments,
       userId,
+      planDayId,
     } = body;
 
     if (!userId) {
@@ -24,7 +28,10 @@ export async function POST(request: Request) {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      include: { couple: { include: { users: true } } },
+      include: { 
+        couple: { include: { users: true } },
+        subscriptions: true 
+      },
     });
 
     if (!user || !user.couple) {
@@ -35,6 +42,12 @@ export async function POST(request: Request) {
     }
 
     const coupleId = user.couple.id;
+    const now = new Date();
+
+    // Determine if user is premium
+    const isPremium = user.subscriptions.some(
+      (sub) => new Date(sub.expiresAt) > now
+    );
 
     // Verificar se já existe sessão ativa
     const existingSession = await prisma.devotionalSession.findFirst({
@@ -50,7 +63,7 @@ export async function POST(request: Request) {
       },
     });
 
-    if (existingSession) {
+    if (existingSession && !isPremium) {
       return NextResponse.json(
         {
           error: 'ACTIVE_SESSION_EXISTS',
@@ -62,8 +75,6 @@ export async function POST(request: Request) {
     }
 
     // Verificar se já gerou devocional hoje usando transação com lock para evitar race condition
-    const now = new Date();
-
     // Usar transação com SELECT FOR UPDATE para evitar race condition
     const canGenerate = await prisma.$transaction(async (tx) => {
       // Lock o registro do casal para evitar race condition
@@ -76,8 +87,8 @@ export async function POST(request: Request) {
         throw new Error('Casal não encontrado');
       }
 
-      // Verifica se já gerou hoje
-      if (couple.lastGeneratedAt) {
+      // Verifica se já gerou hoje (Apenas para não-premium)
+      if (!isPremium && couple.lastGeneratedAt) {
         if (isSameLocalizedDay(new Date(couple.lastGeneratedAt), now)) {
           return false; // Já gerou hoje
         }
@@ -102,6 +113,32 @@ export async function POST(request: Request) {
       );
     }
 
+    // If planDayId is provided, check if the previous day is completed
+    if (planDayId) {
+      const currentDay = await prisma.planDay.findUnique({
+        where: { id: planDayId },
+      });
+
+      if (currentDay && currentDay.dayNumber > 1) {
+        const previousDay = await prisma.planDay.findFirst({
+          where: {
+            planId: currentDay.planId,
+            dayNumber: currentDay.dayNumber - 1,
+          },
+        });
+
+        if (previousDay && !previousDay.isCompleted) {
+          return NextResponse.json(
+            {
+              error: 'PREVIOUS_DAY_REQUIRED',
+              message: 'Você precisa concluir o dia anterior do plano antes de iniciar este.',
+            },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
     // Check if template already exists for this scripture reference
     let template = await prisma.devotionalTemplate.findUnique({
       where: { scriptureReference },
@@ -120,9 +157,24 @@ export async function POST(request: Request) {
           christConnection,
           applicationQuestions,
           scriptureText: scriptureText ?? null,
+          centralTruth: centralTruth ?? null,
+          keyGreekHebrewTerms: keyGreekHebrewTerms ?? null,
+          comments: comments ?? null,
           isAiGenerated: true,
         },
       });
+    } else {
+      // Se o template já existe mas não tem os campos premium e foram fornecidos, atualiza
+      if ((centralTruth || keyGreekHebrewTerms || comments) && (!template.centralTruth || !template.keyGreekHebrewTerms || !template.comments)) {
+        template = await prisma.devotionalTemplate.update({
+          where: { id: template.id },
+          data: {
+            ...(centralTruth && !template.centralTruth && { centralTruth }),
+            ...(keyGreekHebrewTerms && !template.keyGreekHebrewTerms && { keyGreekHebrewTerms }),
+            ...(comments && !template.comments && { comments }),
+          },
+        });
+      }
     }
 
     // Create session linked to template
@@ -132,6 +184,7 @@ export async function POST(request: Request) {
         templateId: template.id,
         coupleId,
         initiatedByUserId: user.id,
+        planDayId: planDayId || null,
         userProgress: {
           create: user.couple.users.map((coupleUser) => ({
             userId: coupleUser.id,

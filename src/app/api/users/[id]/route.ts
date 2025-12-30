@@ -14,11 +14,29 @@ export async function GET(request: Request, { params }: { params: { id: string }
           include: {
             users: true
           }
-        }
+        },
+        subscriptions: true // Include subscriptions to check validity
       }
     });
+
     if (user) {
-      return NextResponse.json(user);
+      // Compute isSubscription dynamically based on active subscriptions
+      // A subscription is valid if expiresAt is in the future
+      const hasActiveSubscription = user.subscriptions.some(
+        (sub) => new Date(sub.expiresAt) > new Date()
+      );
+      
+      // Compute latest expiration date
+      const latestSubscription = user.subscriptions.sort(
+        (a, b) => new Date(b.expiresAt).getTime() - new Date(a.expiresAt).getTime()
+      )[0];
+
+      // Return user with computed isSubscription and expiration date
+      return NextResponse.json({
+        ...user,
+        isSubscription: hasActiveSubscription,
+        subscriptionExpiresAt: latestSubscription?.expiresAt || null
+      });
     } else {
       return new NextResponse(JSON.stringify({ error: 'User not found' }), { status: 404 });
     }

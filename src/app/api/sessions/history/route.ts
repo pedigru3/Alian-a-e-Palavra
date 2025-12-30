@@ -23,14 +23,37 @@ export async function GET(request: Request) {
     const history = await prisma.devotionalSession.findMany({
       where: {
         coupleId: user.couple.id,
-        status: 'COMPLETED',
       },
       orderBy: { date: 'desc' },
       include: {
         template: true,
         userProgress: { include: { user: true } },
+        notes: { include: { user: true } },
       },
     });
+    
+    // Decrypt notes for all sessions
+    if (user.couple.encryptionKey) {
+       const { decryptNote } = await import('@/lib/encryption');
+       
+       const decryptedHistory = history.map(session => {
+         const decryptedNotes = session.notes.map(note => {
+           try {
+             if (!note.content) return note;
+             return {
+               ...note,
+               content: decryptNote(note.content, user.couple!.encryptionKey!)
+             };
+           } catch (e) {
+             console.error('Error decrypting note history', e);
+             return note;
+           }
+         });
+         return { ...session, notes: decryptedNotes };
+       });
+
+       return NextResponse.json(decryptedHistory);
+    }
 
     return NextResponse.json(history);
   } catch (error) {

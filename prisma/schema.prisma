@@ -17,6 +17,8 @@ model User {
   password      String
   avatarUrl     String?
   isSubscription Boolean  @default(false)
+  emailVerified DateTime?
+  verificationToken String?
   
   coupleId      String?
   couple        Couple?   @relation(fields: [coupleId], references: [id])
@@ -42,6 +44,40 @@ model Couple {
   users           User[]
   weeklyProgress  WeeklyProgress[]
   devotionalSessions DevotionalSession[]
+  plans              DevotionalPlan[]
+}
+
+model DevotionalPlan {
+  id          String    @id @default(cuid())
+  couple      Couple    @relation(fields: [coupleId], references: [id], onDelete: Cascade)
+  coupleId    String
+  title       String
+  description String
+  duration    Int
+  days        PlanDay[]
+
+  createdAt   DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(6)
+
+  @@index([coupleId])
+}
+
+model PlanDay {
+  id                 String         @id @default(cuid())
+  plan               DevotionalPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  planId             String
+  dayNumber          Int
+  title              String
+  theme              String
+  scriptureReference String
+  isCompleted        Boolean        @default(false)
+  devotionalSessions DevotionalSession[]
+
+  createdAt          DateTime       @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime       @updatedAt @db.Timestamptz(6)
+
+  @@index([planId])
+  @@unique([planId, dayNumber])
 }
 
 model DevotionalTemplate {
@@ -72,11 +108,13 @@ model DevotionalSession {
   template            DevotionalTemplate @relation(fields: [templateId], references: [id])
   templateId          String
   
-  couple              Couple   @relation(fields: [coupleId], references: [id])
+  couple              Couple   @relation(fields: [coupleId], references: [id], onDelete: Cascade)
   coupleId            String
   initiatedBy         User     @relation("InitiatedSessions", fields: [initiatedByUserId], references: [id])
   initiatedByUserId   String
   userProgress        DevotionalSessionUserProgress[]
+  planDay             PlanDay? @relation(fields: [planDayId], references: [id])
+  planDayId           String?
 
   createdAt           DateTime @default(now()) @db.Timestamptz(6)
   updatedAt           DateTime @updatedAt @db.Timestamptz(6)
@@ -90,7 +128,7 @@ model Note {
   content     String
   createdAt   DateTime @default(now()) @db.Timestamptz(6)
   updatedAt   DateTime @updatedAt @db.Timestamptz(6)
-  session     DevotionalSession @relation(fields: [sessionId], references: [id])
+  session     DevotionalSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   sessionId   String
   user        User     @relation(fields: [userId], references: [id])
   userId      String
@@ -102,7 +140,7 @@ model WeeklyProgress {
   weekEnd           DateTime @db.Timestamptz(6)
   daysCompleted     String   // Storing as a comma-separated string of booleans
   spiritualGrowthXP Int
-  couple            Couple   @relation(fields: [coupleId], references: [id])
+  couple            Couple   @relation(fields: [coupleId], references: [id], onDelete: Cascade)
   coupleId          String
 
   @@unique([coupleId, weekStart])

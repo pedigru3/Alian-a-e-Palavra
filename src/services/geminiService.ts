@@ -26,7 +26,85 @@ if (!apiKey) {
 
 const ai = new GoogleGenAI({ apiKey: apiKey || 'dummy-key' });
 
-export const generateDevotionalContent = async (scripture: string): Promise<GeminiResponse> => {
+export interface DevotionalPlanResponse {
+  title: string;
+  days: {
+    day: number;
+    title: string;
+    theme: string;
+    scripture: string;
+  }[];
+}
+
+export const generateDevotionalPlan = async (description: string, duration: number): Promise<DevotionalPlanResponse> => {
+  const modelId = "gemini-2.5-flash";
+
+  const schema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+      title: { type: Type.STRING, description: "A catchy and inspiring title for the entire devotional plan." },
+      days: {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            day: { type: Type.INTEGER },
+            title: { type: Type.STRING, description: "A specific title for this day's study." },
+            theme: { type: Type.STRING, description: "The theological theme or topic for the day." },
+            scripture: { type: Type.STRING, description: "The key scripture reference for the day." }
+          },
+          required: ["day", "title", "theme", "scripture"]
+        }
+      }
+    },
+    required: ["title", "days"]
+  };
+
+  const prompt = `
+    Atue como um conselheiro cristão sábio.
+    Crie um plano de devocional de ${duration} dias para um casal com a seguinte descrição/objetivo: "${description}".
+
+    Para cada dia, forneça:
+    - Um número do dia (1 a ${duration})
+    - Um título específico e inspirador para o dia
+    - Um tema teológico central
+    - Uma referência bíblica chave que suporte o tema
+
+    Também forneça um título criativo para o plano inteiro.
+    Responda em PORTUGUÊS (Brasil).
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: modelId,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: schema,
+        temperature: 0.7,
+      },
+    });
+
+    const text = response.text;
+    if (!text) throw new Error("No plan generated");
+    
+    return JSON.parse(text) as DevotionalPlanResponse;
+  } catch (error) {
+    console.error("Gemini API Error (Plan):", error);
+    // Fallback simple plan
+    return {
+      title: "Plano de Exemplo (Fallback)",
+      days: Array.from({ length: duration }, (_, i) => ({
+        day: i + 1,
+        title: `Dia ${i + 1}: Amor`,
+        theme: "Amor",
+        scripture: "1 Coríntios 13:4-7"
+      }))
+    };
+  }
+};
+
+export const generateDevotionalContent = async (scripture: string, theme?: string): Promise<GeminiResponse> => {
   const modelId = "gemini-2.5-flash";
 
   const schema: Schema = {
@@ -49,10 +127,13 @@ export const generateDevotionalContent = async (scripture: string): Promise<Gemi
     required: ["scriptureReference", "theme", "culturalContext", "literaryContext", "christConnection", "questions"]
   };
 
+  const themeInstruction = theme ? `O tema central deste estudo deve ser: "${theme}".` : "";
+
   const prompt = `
     Atue como um conselheiro cristão sábio e experiente em casamentos.
     
     O usuário digitou: "${scripture}"
+    ${themeInstruction}
     
     PRIMEIRO, identifique se isso é uma referência bíblica válida:
     - Se for uma referência válida (ex: "1 cor 13", "salmo 23", "genesis 2:24"), normalize para o formato padrão brasileiro (ex: "1 Coríntios 13", "Salmos 23", "Gênesis 2:24")
@@ -412,7 +493,7 @@ const POPULAR_SCRIPTURES = [
   "Apocalipse 21:1-4"      // Novo céu e nova terra
 ];
 
-export const generateDevotionalContentPremium = async (scripture: string): Promise<GeminiPremiumResponse> => {
+export const generateDevotionalContentPremium = async (scripture: string, theme?: string): Promise<GeminiPremiumResponse> => {
   const modelId = "gemini-2.5-pro";
 
   const schema: Schema = {
@@ -469,10 +550,13 @@ export const generateDevotionalContentPremium = async (scripture: string): Promi
     ]
   };
 
+    const themeInstruction = theme ? `O tema central deste estudo deve ser: "${theme}".` : "";
+
   const prompt = `
     Atue como um erudito bíblico cristão, especialista em estudos teológicos e exegéticos, com profundo conhecimento de grego e hebraico, e experiência em aconselhamento de casais.
     
     O usuário digitou: "${scripture}"
+    ${themeInstruction}
     
     PRIMEIRO, identifique se isso é uma referência bíblica válida:
     - Se for uma referência válida (ex: "1 cor 13", "salmo 23", "genesis 2:24"), normalize para o formato padrão brasileiro (ex: "1 Coríntios 13", "Salmos 23", "Gênesis 2:24")

@@ -217,6 +217,14 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     if (aggregateStatus === 'COMPLETED' && sessionRecord.status !== 'COMPLETED') {
       await markWeeklyProgressCompletion(sessionRecord.coupleId);
       xpResult = await addXpToCouple(sessionRecord.coupleId, 10);
+
+      // Se a sessão estiver vinculada a um dia de um plano, marca o dia como concluído
+      if (sessionRecord.planDayId) {
+        await prisma.planDay.update({
+          where: { id: sessionRecord.planDayId },
+          data: { isCompleted: true },
+        });
+      }
     }
 
     const updatedSession = await prisma.devotionalSession.findUnique({

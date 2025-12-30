@@ -115,7 +115,7 @@ export default function Home() {
   const [sessionData, setSessionData] = useState<SessionWithRelations | null>(null);
 
   const [scriptureInput, setScriptureInput] = useState('');
-  const [activeTab, setActiveTab] = useState<'context' | 'christ' | 'application'>('context');
+  const [activeTab, setActiveTab] = useState<'context' | 'christ' | 'application' | 'premium'>('context');
 
   // Notes Local State (for immediate typing feedback)
   const [myNote, setMyNote] = useState('');
@@ -738,7 +738,14 @@ export default function Home() {
                       className="flex-1 flex justify-between items-center"
                     >
                       <div>
-                        <h3 className="font-bold text-slate-800">{session.template.scriptureReference}</h3>
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="font-bold text-slate-800">{session.template.scriptureReference}</h3>
+                          {(session.template.centralTruth || session.template.keyGreekHebrewTerms || session.template.comments) && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-gradient-to-r from-amber-400 to-yellow-400 text-white rounded text-[9px] font-bold">
+                              <Sparkles size={8} />
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-slate-500">{new Date(session.date).toLocaleDateString()}</p>
                         <span className="inline-block px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold tracking-wider mt-1">
                           {session.template.theme.toUpperCase()}
@@ -816,9 +823,17 @@ export default function Home() {
 
             {/* Scripture Header */}
             <section className="text-center py-6">
-               <span className="inline-block px-3 py-1 bg-love-100 text-love-700 rounded-full text-xs font-bold tracking-wider mb-2">
-                 {sessionData.template.theme.toUpperCase()}
-               </span>
+               <div className="flex items-center justify-center gap-2 mb-2 flex-wrap">
+                 <span className="inline-block px-3 py-1 bg-love-100 text-love-700 rounded-full text-xs font-bold tracking-wider">
+                   {sessionData.template.theme.toUpperCase()}
+                 </span>
+                 {(sessionData.template.centralTruth || sessionData.template.keyGreekHebrewTerms || sessionData.template.comments) && (
+                   <span className="inline-flex items-center gap-1 px-3 py-1 bg-gradient-to-r from-amber-400 to-yellow-400 text-white rounded-full text-xs font-bold tracking-wider shadow-sm">
+                     <Sparkles size={12} />
+                     PREMIUM
+                   </span>
+                 )}
+               </div>
                <h2 className="font-serif text-4xl font-bold text-slate-800 mb-2">{sessionData.template.scriptureReference}</h2>
             </section>
 
@@ -836,25 +851,36 @@ export default function Home() {
 
             {/* AI Content Tabs */}
             <section className="bg-white rounded-2xl shadow-md overflow-hidden border border-love-100">
-               <div className="flex border-b border-love-100">
+               <div className="flex border-b border-love-100 overflow-x-auto">
                  <button
                    onClick={() => setActiveTab('context')}
-                   className={`flex-1 py-4 text-sm font-semibold tracking-wide transition-colors ${activeTab === 'context' ? 'bg-love-50 text-love-700 border-b-2 border-love-500' : 'text-slate-500 hover:bg-slate-50'}`}
+                   className={`flex-1 min-w-[120px] py-4 text-sm font-semibold tracking-wide transition-colors ${activeTab === 'context' ? 'bg-love-50 text-love-700 border-b-2 border-love-500' : 'text-slate-500 hover:bg-slate-50'}`}
                  >
                    Contexto
                  </button>
                  <button
                    onClick={() => setActiveTab('christ')}
-                   className={`flex-1 py-4 text-sm font-semibold tracking-wide transition-colors ${activeTab === 'christ' ? 'bg-love-50 text-love-700 border-b-2 border-love-500' : 'text-slate-500 hover:bg-slate-50'}`}
+                   className={`flex-1 min-w-[120px] py-4 text-sm font-semibold tracking-wide transition-colors ${activeTab === 'christ' ? 'bg-love-50 text-love-700 border-b-2 border-love-500' : 'text-slate-500 hover:bg-slate-50'}`}
                  >
                    Cristo
                  </button>
                  <button
                    onClick={() => setActiveTab('application')}
-                   className={`flex-1 py-4 text-sm font-semibold tracking-wide transition-colors ${activeTab === 'application' ? 'bg-love-50 text-love-700 border-b-2 border-love-500' : 'text-slate-500 hover:bg-slate-50'}`}
+                   className={`flex-1 min-w-[120px] py-4 text-sm font-semibold tracking-wide transition-colors ${activeTab === 'application' ? 'bg-love-50 text-love-700 border-b-2 border-love-500' : 'text-slate-500 hover:bg-slate-50'}`}
                  >
                    Aplicação
                  </button>
+                 {(sessionData.template.centralTruth || sessionData.template.keyGreekHebrewTerms || sessionData.template.comments) && (
+                   <button
+                     onClick={() => setActiveTab('premium')}
+                     className={`flex-1 min-w-[120px] py-4 text-sm font-semibold tracking-wide transition-colors relative ${activeTab === 'premium' ? 'bg-gradient-to-r from-amber-50 to-yellow-50 text-amber-700 border-b-2 border-amber-500' : 'text-amber-600 hover:bg-amber-50'}`}
+                   >
+                     <span className="flex items-center justify-center gap-1">
+                       Premium
+                       <Sparkles size={14} className="text-amber-500" />
+                     </span>
+                   </button>
+                 )}
                </div>
 
                <div className="p-6 min-h-[160px]">
@@ -893,6 +919,45 @@ export default function Home() {
                         </li>
                       ))}
                     </ul>
+                 )}
+                 {activeTab === 'premium' && (sessionData.template.centralTruth || sessionData.template.keyGreekHebrewTerms || sessionData.template.comments) && (
+                   <div className="animate-fade-in space-y-6">
+                     {sessionData.template.centralTruth && (
+                       <div className="bg-gradient-to-br from-amber-50 to-yellow-50 rounded-xl p-5 border border-amber-200">
+                         <div className="flex items-center gap-2 mb-3">
+                           <div className="w-8 h-8 bg-amber-400 rounded-full flex items-center justify-center">
+                             <Sparkles size={16} className="text-white" />
+                           </div>
+                           <h4 className="font-serif text-lg font-bold text-amber-900">Verdade Central</h4>
+                         </div>
+                         <p className="text-amber-900 leading-relaxed text-sm sm:text-base">{sessionData.template.centralTruth}</p>
+                       </div>
+                     )}
+                     
+                     {sessionData.template.keyGreekHebrewTerms && (
+                       <div className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-xl p-5 border border-purple-200">
+                         <div className="flex items-center gap-2 mb-3">
+                           <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center">
+                             <BookOpen size={16} className="text-white" />
+                           </div>
+                           <h4 className="font-serif text-lg font-bold text-purple-900">Termos em Grego/Hebraico</h4>
+                         </div>
+                         <p className="text-purple-900 leading-relaxed text-sm sm:text-base whitespace-pre-wrap">{sessionData.template.keyGreekHebrewTerms}</p>
+                       </div>
+                     )}
+                     
+                     {sessionData.template.comments && (
+                       <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl p-5 border border-blue-200">
+                         <div className="flex items-center gap-2 mb-3">
+                           <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+                             <ShieldCheck size={16} className="text-white" />
+                           </div>
+                           <h4 className="font-serif text-lg font-bold text-blue-900">Comentários dos Eruditos</h4>
+                         </div>
+                         <p className="text-blue-900 leading-relaxed text-sm sm:text-base whitespace-pre-wrap">{sessionData.template.comments}</p>
+                       </div>
+                     )}
+                   </div>
                  )}
                </div>
             </section>

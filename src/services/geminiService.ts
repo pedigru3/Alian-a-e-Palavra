@@ -37,7 +37,7 @@ export interface DevotionalPlanResponse {
 }
 
 export const generateDevotionalPlan = async (description: string, duration: number): Promise<DevotionalPlanResponse> => {
-  const modelId = "gemini-2.5-flash";
+  const modelId = "gemini-3-flash-preview";
 
   const schema: Schema = {
     type: Type.OBJECT,
@@ -105,7 +105,7 @@ export const generateDevotionalPlan = async (description: string, duration: numb
 };
 
 export const generateDevotionalContent = async (scripture: string, theme?: string): Promise<GeminiResponse> => {
-  const modelId = "gemini-2.5-flash";
+  const modelId = "gemini-3-flash-preview";
 
   const schema: Schema = {
     type: Type.OBJECT,
@@ -494,7 +494,7 @@ const POPULAR_SCRIPTURES = [
 ];
 
 export const generateDevotionalContentPremium = async (scripture: string, theme?: string): Promise<GeminiPremiumResponse> => {
-  const modelId = "gemini-2.5-pro";
+  const modelId = "gemini-3-flash-preview";
 
   const schema: Schema = {
     type: Type.OBJECT,

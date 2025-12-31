@@ -15,21 +15,51 @@ export async function POST(request: Request) {
     const expiresAt = new Date();
     expiresAt.setFullYear(expiresAt.getFullYear() + 1); // 1 year duration
 
-    // Create subscription and update user in transaction
-    const result = await prisma.$transaction(async (tx) => {
-      await tx.subscription.create({
-        data: {
-          userId,
-          startDate,
-          expiresAt,
-        }
-      });
+    // Find the user to check for coupleId
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { coupleId: true }
+    });
 
-      return await tx.user.update({
-        where: { id: userId },
+    const userIdsToUpgrade = [userId];
+    if (user?.coupleId) {
+      const partner = await prisma.user.findFirst({
+        where: {
+          coupleId: user.coupleId,
+          id: { not: userId }
+        },
+        select: { id: true }
+      });
+      if (partner) {
+        userIdsToUpgrade.push(partner.id);
+      }
+    }
+
+    // Create subscription and update users in transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Create subscriptions for all relevant users
+      await Promise.all(userIdsToUpgrade.map(id => 
+        tx.subscription.create({
+          data: {
+            userId: id,
+            startDate,
+            expiresAt,
+          }
+        })
+      ));
+
+      // Update isSubscription for all relevant users
+      await tx.user.updateMany({
+        where: { id: { in: userIdsToUpgrade } },
         data: {
           isSubscription: true,
         },
+      });
+
+      // Return the initiating user
+      return await tx.user.findUnique({
+        where: { id: userId },
+        include: { couple: true }
       });
     });
 

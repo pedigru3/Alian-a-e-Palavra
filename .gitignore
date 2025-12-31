@@ -48,3 +48,6 @@ app_mobile
 .env
 .env.test
 .env.local
+
+#token
+.token

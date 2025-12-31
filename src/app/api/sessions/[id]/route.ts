@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getLocalizedTodayIndex, getLocalizedWeekBoundaries } from '@/lib/timezone';
+import { notifyPartnerCompletion } from '@/lib/notifications';
 
 const DEFAULT_DAYS_COMPLETED = Array(7).fill('false').join(',');
 
@@ -209,6 +210,11 @@ export async function PUT(request: Request, { params }: { params: { id: string }
         where: { id },
         data: sessionUpdateData,
       });
+
+      // Se o usuário atual terminou e o parceiro ainda não, notifica o parceiro
+      if (userCompleted && aggregateStatus === 'WAITING_PARTNER') {
+        await notifyPartnerCompletion(id, currentUser.id);
+      }
     }
 
     let xpResult = null;

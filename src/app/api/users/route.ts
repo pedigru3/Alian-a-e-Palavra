@@ -43,7 +43,10 @@ export async function POST(request: Request) {
       // For now, just log the error. The user can request another one later (to be implemented).
     }
 
-    return NextResponse.json(newUser, { status: 201 });
+    // Exclude sensitive fields from response
+    const { password: _, pushToken: __, verificationToken: ___, ...newUserSafe } = newUser;
+
+    return NextResponse.json(newUserSafe, { status: 201 });
   } catch (error) {
     console.error('Error creating user:', error);
     return new NextResponse(JSON.stringify({ error: 'Internal Server Error' }), { status: 500 });
@@ -68,7 +71,25 @@ export async function GET(request: Request) {
           },
         });
         if (user) {
-          return NextResponse.json(user);
+          // Remove sensitive fields from main user object
+          const { password: _p, pushToken: _pt, verificationToken: _vt, ...userSafe } = user;
+
+          // Remove password from couple users if they exist
+          if (userSafe.couple && userSafe.couple.users) {
+            const safeCoupleUsers = userSafe.couple.users.map(u => {
+              const { password: __p, pushToken: __pt, verificationToken: __vt, ...uSafe } = u;
+              return uSafe;
+            });
+
+            // Reconstruct couple object with safe users and remove encryptionKey
+            const { encryptionKey: _ek, ...coupleSafe } = userSafe.couple;
+            (userSafe as any).couple = {
+              ...coupleSafe,
+              users: safeCoupleUsers
+            };
+          }
+
+          return NextResponse.json(userSafe);
         } else {
           return new NextResponse(JSON.stringify({ error: 'User not found' }), { status: 404 });
         }
@@ -80,7 +101,14 @@ export async function GET(request: Request) {
       // Fetch all users
       try {
         const users = await prisma.user.findMany();
-        return NextResponse.json(users);
+        
+        // Remove password from all users
+        const safeUsers = users.map(user => {
+          const { password: _p, pushToken: _pt, verificationToken: _vt, ...userSafe } = user;
+          return userSafe;
+        });
+
+        return NextResponse.json(safeUsers);
       } catch (error) {
         console.error('Error fetching all users:', error);
         return new NextResponse(JSON.stringify({ error: 'Internal Server Error' }), { status: 500 });

@@ -20,6 +20,9 @@ model User {
   emailVerified DateTime?
   verificationToken String?
   
+  pushToken     String?
+  lastActiveAt  DateTime?
+  
   coupleId      String?
   couple        Couple?   @relation(fields: [coupleId], references: [id])
 
